@@ -1,34 +1,46 @@
-SENTINELLE PRO V5.8.4 — STAGING SUPABASE LECTURE SEULE
+SENTINELLE PRO V5.8.4 — STAGING SUPABASE TEST D'ÉCRITURE CONTRÔLÉE
 
 OBJECTIF
-Ce paquet sert uniquement à contrôler la connexion entre Firebase Auth et la copie Supabase staging.
-Il ne s'agit pas encore d'une nouvelle version opérationnelle de Sentinelle Pro.
+Valider les écritures Supabase via les JWT Firebase existants et les RLS du staging, sans toucher à la production Firebase.
 
-GARANTIES
-- firebase-config.js est une copie strictement identique au fichier fourni dans la V5.8.4.
-- Aucune fonction de mission, prise de poste, MCI, planning, push ou PDF n'est présente.
-- Aucun Service Worker n'est enregistré.
-- OneSignal n'est ni chargé ni initialisé.
-- Les appels Supabase sont limités dans le code aux méthodes HTTP GET et HEAD.
-- Firebase Auth est utilisé pour la connexion ; cette connexion peut mettre à jour les métadonnées normales de dernière connexion du compte.
-- Firestore est utilisé uniquement pour lire le document users/{uid}.
-- Aucune écriture de donnée métier dans Firestore, Firebase Storage ou Supabase n'est programmée.
+CE TEST FAIT
+- Connexion Firebase Auth existante.
+- Lecture du profil Firestore users/{uid}.
+- Audit de lecture Supabase/RLS.
+- Pour un compte admin ou superviseur uniquement :
+  1. INSERT d'un profil agent temporaire dans public.profiles.
+  2. SELECT de contrôle.
+  3. UPDATE de ce profil temporaire.
+  4. DELETE du même profil.
+  5. SELECT final pour confirmer qu'il ne reste aucune ligne de test.
+
+SÉCURITÉ
+- Le profil temporaire porte toujours un external_uid commençant par staging-write-test-.
+- firebase_payload.staging_write_test=true est vérifié avant la suite du test.
+- Un nettoyage de secours est tenté si une étape échoue après la création.
+- Aucune écriture Firestore.
+- Aucune écriture Firebase Storage.
+- Aucune mission, vacation, MCI, planning, document ou notification n'est modifié.
+- Aucun Service Worker.
+- OneSignal absent.
+- Ce test ne crée PAS de compte Firebase Auth et ne constitue donc pas encore la création opérationnelle complète d'un nouvel agent.
 
 DÉPLOIEMENT
-Ce dossier doit être publié dans un dépôt GitHub Pages séparé de la production.
-Ne remplacez aucun fichier du dépôt AZERRAP de production.
+Remplacer les fichiers du repo staging actuel par ce paquet, ou au minimum :
+- index.html
+- staging-app.js
+- staging-style.css
+- README-DEPLOIEMENT.txt
+- SHA256SUMS.txt
 
-PROJETS CIBLÉS
-Firebase : azzerap-7b440
-Supabase : sentinelle-pro-staging
-Référence Supabase : ksoyqtsrhtsfbwmxipqz
-Organisation : 43b09366-de36-5b44-97cc-d549eb0d4e53
+NE PAS DÉPLOYER DANS LE REPO AZERRAP DE PRODUCTION.
 
 RÉSULTAT ATTENDU
-Après connexion et lancement du contrôle :
-- Claim Firebase : authenticated
-- Réponse Supabase : HTTP 200
-- Rôle métier : identique à Firestore
-- Organisation : conforme
-
-Les comptages sont informatifs. Une différence peut provenir des règles RLS ou d'une évolution des données depuis l'import.
+Avec un compte QG admin/superviseur :
+- audit lecture validé ;
+- bouton Étape 3 activé ;
+- POST profiles : OK ;
+- GET vérification : OK ;
+- PATCH profiles : OK ;
+- DELETE profiles : OK ;
+- Nettoyage : 0 ligne restante.

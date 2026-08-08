@@ -8,31 +8,31 @@
   <meta http-equiv="Cache-Control" content="no-store, max-age=0">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://www.gstatic.com; style-src 'self'; img-src 'self' data:; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://*.firebaseapp.com https://ksoyqtsrhtsfbwmxipqz.supabase.co; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'">
-  <title>Sentinelle Pro — Staging Supabase lecture seule</title>
+  <title>Sentinelle Pro — Staging Supabase test écriture</title>
   <link rel="icon" href="./assets/favicon.png">
-  <link rel="stylesheet" href="./staging-style.css?v=1">
+  <link rel="stylesheet" href="./staging-style.css?v=2">
 </head>
 <body>
-  <div class="staging-ribbon">STAGING · CONTRÔLE SUPABASE EN LECTURE SEULE</div>
+  <div class="staging-ribbon">STAGING · TEST SUPABASE · ÉCRITURE CONTRÔLÉE</div>
   <main class="shell">
     <header class="hero">
       <img src="./assets/logo.png" alt="Sentinelle Pro" class="logo">
       <div>
         <p class="eyebrow">Sentinelle Pro V5.8.4</p>
-        <h1>Validation Firebase → Supabase</h1>
-        <p class="subtitle">Portail isolé de diagnostic. Il ne contient aucune fonction opérationnelle.</p>
+        <h1>Validation lecture + écriture Supabase</h1>
+        <p class="subtitle">Portail isolé de staging. Les écritures sont limitées à un profil agent temporaire auto-supprimé.</p>
       </div>
     </header>
 
     <section class="safety-card" aria-label="Garanties de sécurité">
-      <strong>Mode strictement non destructif</strong>
+      <strong>Écriture Supabase strictement contrôlée</strong>
       <div class="safety-grid">
-        <span>✓ Firebase : connexion et lecture du profil uniquement</span>
-        <span>✓ Supabase : requêtes GET/HEAD uniquement</span>
-        <span>✓ Aucun Service Worker</span>
-        <span>✓ OneSignal totalement absent</span>
-        <span>✓ Aucun bouton de prise de poste, mission ou MCI</span>
-        <span>✓ Aucune écriture Firestore, Storage ou Supabase</span>
+        <span>✓ Firebase : connexion + lecture du profil uniquement</span>
+        <span>✓ Supabase : lecture complète selon RLS</span>
+        <span>✓ Test POST → PATCH → DELETE uniquement sur un profil temporaire</span>
+        <span>✓ Le profil de test porte le préfixe <code>staging-write-test-</code></span>
+        <span>✓ Aucun Service Worker ni OneSignal</span>
+        <span>✓ Aucune écriture Firestore, Storage, mission, shift ou MCI</span>
       </div>
     </section>
 
@@ -108,6 +108,30 @@
       </div>
     </section>
 
+    <section id="write-card" class="card muted-card" aria-disabled="true">
+      <div class="card-head">
+        <div>
+          <p class="kicker">Étape 3</p>
+          <h2>Test d’écriture Supabase</h2>
+        </div>
+        <span id="write-status" class="status neutral">En attente</span>
+      </div>
+
+      <p class="explanation">
+        Réservé au QG <code>admin</code> ou <code>superviseur</code>. Le test crée un profil agent temporaire dans
+        <code>profiles</code>, le relit, le modifie, vérifie la modification puis le supprime. Il ne crée aucun compte Firebase Auth.
+      </p>
+
+      <div class="write-warning">
+        <strong>Test auto-nettoyant</strong>
+        <span>Si toutes les étapes réussissent, le nombre de profils revient automatiquement à sa valeur initiale.</span>
+      </div>
+
+      <button id="write-button" type="button" class="danger-safe" disabled>Lancer le test POST → PATCH → DELETE</button>
+      <p id="write-message" class="message" aria-live="polite"></p>
+      <div id="write-results" class="write-results hidden"></div>
+    </section>
+
     <section class="card technical-card">
       <h2>Environnement contrôlé</h2>
       <dl>
@@ -119,6 +143,6 @@
     </section>
   </main>
 
-  <script type="module" src="./staging-app.js?v=1"></script>
+  <script type="module" src="./staging-app.js?v=2"></script>
 </body>
 </html>

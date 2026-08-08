@@ -42,11 +42,10 @@ const EXPECTED_COUNTS = Object.freeze({
   audit_logs: 578
 });
 
-const TOTAL_EXPECTED = Object.values(EXPECTED_COUNTS)
-  .reduce((sum, value) => sum + value, 0);
+const TOTAL_EXPECTED = Object.values(EXPECTED_COUNTS).reduce((sum, value) => sum + value, 0);
+const TEST_UID_PREFIX = 'staging-write-test-';
 
 const $ = (selector) => document.querySelector(selector);
-const authCard = $('#auth-card');
 const authStatus = $('#auth-status');
 const authMessage = $('#auth-message');
 const loginForm = $('#login-form');
@@ -61,9 +60,15 @@ const auditButton = $('#audit-button');
 const summary = $('#summary');
 const countsZone = $('#counts-zone');
 const countsBody = $('#counts-body');
+const writeCard = $('#write-card');
+const writeStatus = $('#write-status');
+const writeMessage = $('#write-message');
+const writeButton = $('#write-button');
+const writeResults = $('#write-results');
 
 let currentUser = null;
 let currentFirebaseProfile = null;
+let lastAuditSucceeded = false;
 
 function setStatus(element, label, kind = 'neutral') {
   element.textContent = label;
@@ -75,45 +80,19 @@ function setMessage(element, label = '', kind = '') {
   element.className = `message${kind ? ` ${kind}` : ''}`;
 }
 
-function safeText(value) {
-  return String(value ?? '—');
-}
-
+function safeText(value) { return String(value ?? '—'); }
 function escapeHtml(value) {
   return safeText(value).replace(/[&<>"']/g, (character) => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;'
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
   })[character]);
 }
 
 function readableError(error) {
   const code = String(error?.code || '');
-  if (code.includes('invalid-credential') || code.includes('wrong-password')) {
-    return 'Adresse e-mail ou mot de passe incorrect.';
-  }
-  if (code.includes('too-many-requests')) {
-    return 'Trop de tentatives. Patiente quelques minutes avant de recommencer.';
-  }
-  if (code.includes('network-request-failed')) {
-    return 'Connexion réseau indisponible.';
-  }
+  if (code.includes('invalid-credential') || code.includes('wrong-password')) return 'Adresse e-mail ou mot de passe incorrect.';
+  if (code.includes('too-many-requests')) return 'Trop de tentatives. Patiente quelques minutes avant de recommencer.';
+  if (code.includes('network-request-failed')) return 'Connexion réseau indisponible.';
   return error?.message || String(error || 'Erreur inconnue');
-}
-
-function assertReadOnlyMethod(method) {
-  const normalized = String(method || 'GET').toUpperCase();
-  if (!['GET', 'HEAD'].includes(normalized)) {
-    throw new Error(`Méthode bloquée par le mode lecture seule : ${normalized}`);
-  }
-  return normalized;
-}
-
-async function readonlyFetch(url, options = {}) {
-  const method = assertReadOnlyMethod(options.method);
-  return fetch(url, { ...options, method });
 }
 
 function supabaseHeaders(token, extra = {}) {
@@ -127,33 +106,18 @@ function supabaseHeaders(token, extra = {}) {
 
 async function loadFirebaseProfile(user) {
   const snapshot = await getDoc(doc(db, 'users', user.uid));
-  if (!snapshot.exists()) {
-    throw new Error('Le compte existe dans Firebase Auth mais aucun profil Firestore users/{uid} n’a été trouvé.');
-  }
+  if (!snapshot.exists()) throw new Error('Le compte existe dans Firebase Auth mais aucun profil Firestore users/{uid} n’a été trouvé.');
   return { uid: user.uid, ...snapshot.data() };
 }
 
 async function readSupabaseProfile(token, uid) {
   const filter = encodeURIComponent(uid);
-  const url = `${SUPABASE.url}/rest/v1/profiles` +
-    `?select=id,external_uid,organization_id,role,active` +
-    `&external_uid=eq.${filter}`;
-
-  const response = await readonlyFetch(url, {
-    method: 'GET',
-    headers: supabaseHeaders(token)
+  const response = await fetch(`${SUPABASE.url}/rest/v1/profiles?select=id,external_uid,organization_id,role,active&external_uid=eq.${filter}`, {
+    method: 'GET', headers: supabaseHeaders(token)
   });
-
   const payload = await response.json().catch(() => null);
-
-  if (!response.ok) {
-    throw new Error(`Profil Supabase inaccessible (${response.status}) : ${JSON.stringify(payload)}`);
-  }
-
-  if (!Array.isArray(payload) || payload.length !== 1) {
-    throw new Error(`Nombre de profils Supabase inattendu : ${Array.isArray(payload) ? payload.length : 'réponse invalide'}.`);
-  }
-
+  if (!response.ok) throw new Error(`Profil Supabase inaccessible (${response.status}) : ${JSON.stringify(payload)}`);
+  if (!Array.isArray(payload) || payload.length !== 1) throw new Error(`Nombre de profils Supabase inattendu : ${Array.isArray(payload) ? payload.length : 'réponse invalide'}.`);
   return { status: response.status, profile: payload[0] };
 }
 
@@ -165,84 +129,66 @@ function parseContentRange(value) {
 }
 
 async function countVisibleRows(token, table) {
-  const url = `${SUPABASE.url}/rest/v1/${encodeURIComponent(table)}?select=id&limit=1`;
-  const response = await readonlyFetch(url, {
+  const response = await fetch(`${SUPABASE.url}/rest/v1/${encodeURIComponent(table)}?select=id&limit=1`, {
     method: 'GET',
-    headers: supabaseHeaders(token, {
-      Prefer: 'count=exact',
-      Range: '0-0'
-    })
+    headers: supabaseHeaders(token, { Prefer: 'count=exact', Range: '0-0' })
   });
-
   const text = await response.text();
-  if (!response.ok) {
-    return {
-      table,
-      ok: false,
-      status: response.status,
-      count: null,
-      error: text.slice(0, 220)
-    };
-  }
-
+  if (!response.ok) return { table, ok:false, status:response.status, count:null, error:text.slice(0,220) };
   let count = parseContentRange(response.headers.get('content-range'));
   if (count === null) {
-    try {
-      const data = JSON.parse(text);
-      count = Array.isArray(data) ? data.length : null;
-    } catch (_) {
-      count = null;
-    }
+    try { const data = JSON.parse(text); count = Array.isArray(data) ? data.length : null; } catch (_) { count = null; }
   }
-
-  return {
-    table,
-    ok: true,
-    status: response.status,
-    count,
-    error: null
-  };
+  return { table, ok:true, status:response.status, count, error:null };
 }
 
 function renderSummary(items) {
   summary.innerHTML = items.map((item) => `
     <div class="summary-item ${item.good ? 'good' : 'bad'}">
-      <span>${escapeHtml(item.label)}</span>
-      <strong>${escapeHtml(item.value)}</strong>
-    </div>
-  `).join('');
+      <span>${escapeHtml(item.label)}</span><strong>${escapeHtml(item.value)}</strong>
+    </div>`).join('');
   summary.classList.remove('hidden');
 }
 
 function renderCounts(rows) {
   countsBody.innerHTML = rows.map((row) => {
     const expected = EXPECTED_COUNTS[row.table];
-    let state = 'Lecture impossible';
-    let className = 'state-error';
-
-    if (row.ok && row.count === expected) {
-      state = 'Conforme';
-      className = 'state-ok';
-    } else if (row.ok) {
-      state = 'Différent / RLS';
-      className = 'state-info';
-    }
-
-    return `
-      <tr>
-        <td><code>${escapeHtml(row.table)}</code></td>
-        <td>${row.count === null ? '—' : escapeHtml(row.count)}</td>
-        <td>${escapeHtml(expected)}</td>
-        <td class="${className}" title="${escapeHtml(row.error || '')}">${escapeHtml(state)}</td>
-      </tr>
-    `;
+    let state = 'Lecture impossible', className = 'state-error';
+    if (row.ok && row.count === expected) { state = 'Conforme'; className = 'state-ok'; }
+    else if (row.ok) { state = 'Différent / RLS'; className = 'state-info'; }
+    return `<tr><td><code>${escapeHtml(row.table)}</code></td><td>${row.count === null ? '—' : escapeHtml(row.count)}</td><td>${escapeHtml(expected)}</td><td class="${className}" title="${escapeHtml(row.error || '')}">${escapeHtml(state)}</td></tr>`;
   }).join('');
   countsZone.classList.remove('hidden');
 }
 
+function canRunWriteTest() {
+  const role = String(currentFirebaseProfile?.role || '');
+  return Boolean(currentUser && lastAuditSucceeded && ['admin','superviseur'].includes(role));
+}
+
+function refreshWriteAvailability() {
+  const allowed = canRunWriteTest();
+  writeCard.setAttribute('aria-disabled', allowed ? 'false' : 'true');
+  writeButton.disabled = !allowed;
+  if (!currentUser) {
+    setStatus(writeStatus, 'En attente', 'neutral');
+    setMessage(writeMessage, 'Connecte un compte QG pour activer ce test.');
+  } else if (!['admin','superviseur'].includes(String(currentFirebaseProfile?.role || ''))) {
+    setStatus(writeStatus, 'QG requis', 'warning');
+    setMessage(writeMessage, 'Ce test est volontairement bloqué pour les comptes agent.', 'warning');
+  } else if (!lastAuditSucceeded) {
+    setStatus(writeStatus, 'Audit requis', 'neutral');
+    setMessage(writeMessage, 'Lance d’abord le contrôle de lecture Supabase avec ce compte QG.');
+  } else {
+    setStatus(writeStatus, 'Prêt', 'success');
+    setMessage(writeMessage, 'Le test temporaire peut être lancé. Aucune donnée Firebase ne sera modifiée.', 'success');
+  }
+}
+
 async function runAudit() {
   if (!currentUser || !currentFirebaseProfile) return;
-
+  lastAuditSucceeded = false;
+  refreshWriteAvailability();
   auditButton.disabled = true;
   setStatus(auditStatus, 'Contrôle en cours', 'warning');
   setMessage(auditMessage, 'Renouvellement du jeton Firebase et interrogation de Supabase…');
@@ -253,61 +199,162 @@ async function runAudit() {
     const token = await getIdToken(currentUser, true);
     const tokenResult = await getIdTokenResult(currentUser);
     const claimRole = tokenResult.claims?.role ?? null;
-
     const { status, profile: supabaseProfile } = await readSupabaseProfile(token, currentUser.uid);
-
     const roleMatches = String(supabaseProfile.role || '') === String(currentFirebaseProfile.role || '');
     const organizationMatches = supabaseProfile.organization_id === SUPABASE.organizationId;
     const active = supabaseProfile.active === true;
-    const coreSuccess = (
-      claimRole === 'authenticated' &&
-      status === 200 &&
-      roleMatches &&
-      organizationMatches &&
-      active
-    );
+    const coreSuccess = claimRole === 'authenticated' && status === 200 && roleMatches && organizationMatches && active;
 
     renderSummary([
-      { label: 'Claim Firebase', value: claimRole || 'absent', good: claimRole === 'authenticated' },
-      { label: 'Réponse Supabase', value: `HTTP ${status}`, good: status === 200 },
-      { label: 'Rôle métier', value: roleMatches ? safeText(supabaseProfile.role) : 'Différent', good: roleMatches },
-      { label: 'Organisation', value: organizationMatches ? 'Conforme' : 'Différente', good: organizationMatches }
+      { label:'Claim Firebase', value:claimRole || 'absent', good:claimRole === 'authenticated' },
+      { label:'Réponse Supabase', value:`HTTP ${status}`, good:status === 200 },
+      { label:'Rôle métier', value:roleMatches ? safeText(supabaseProfile.role) : 'Différent', good:roleMatches },
+      { label:'Organisation', value:organizationMatches ? 'Conforme' : 'Différente', good:organizationMatches }
     ]);
 
-    const tableNames = Object.keys(EXPECTED_COUNTS);
     const countRows = [];
-
-    for (const table of tableNames) {
-      countRows.push(await countVisibleRows(token, table));
-    }
-
+    for (const table of Object.keys(EXPECTED_COUNTS)) countRows.push(await countVisibleRows(token, table));
     renderCounts(countRows);
+    const visibleTotal = countRows.filter((row) => row.ok && Number.isFinite(row.count)).reduce((sum,row) => sum + row.count,0);
 
-    const visibleTotal = countRows
-      .filter((row) => row.ok && Number.isFinite(row.count))
-      .reduce((sum, row) => sum + row.count, 0);
-
+    lastAuditSucceeded = coreSuccess;
     if (coreSuccess) {
       setStatus(auditStatus, 'Connexion validée', 'success');
-      setMessage(
-        auditMessage,
-        `Authentification et profil validés. Total visible : ${visibleTotal} ligne(s), référence import : ${TOTAL_EXPECTED}.`,
-        'success'
-      );
+      setMessage(auditMessage, `Authentification et profil validés. Total visible : ${visibleTotal} ligne(s), référence import : ${TOTAL_EXPECTED}.`, 'success');
     } else {
       setStatus(auditStatus, 'Contrôle à examiner', 'warning');
-      setMessage(
-        auditMessage,
-        'Supabase répond, mais au moins un contrôle essentiel ne correspond pas. Aucune donnée n’a été modifiée.',
-        'warning'
-      );
+      setMessage(auditMessage, 'Supabase répond, mais au moins un contrôle essentiel ne correspond pas.', 'warning');
     }
   } catch (error) {
     console.error(error);
-    setStatus(auditStatus, 'Échec sans écriture', 'error');
+    setStatus(auditStatus, 'Échec', 'error');
     setMessage(auditMessage, readableError(error), 'error');
   } finally {
     auditButton.disabled = !currentUser;
+    refreshWriteAvailability();
+  }
+}
+
+function renderWriteSteps(steps) {
+  writeResults.innerHTML = steps.map(step => `
+    <div class="write-step ${step.ok ? 'ok' : 'bad'}">
+      <span>${escapeHtml(step.label)}</span>
+      <strong>${escapeHtml(step.detail)}</strong>
+    </div>`).join('');
+  writeResults.classList.remove('hidden');
+}
+
+async function jsonOrText(response) {
+  const text = await response.text();
+  if (!text) return null;
+  try { return JSON.parse(text); } catch (_) { return text; }
+}
+
+async function runWriteTest() {
+  if (!canRunWriteTest()) return;
+  writeButton.disabled = true;
+  writeResults.classList.add('hidden');
+  setStatus(writeStatus, 'Test en cours', 'warning');
+  setMessage(writeMessage, 'Création d’un profil temporaire Supabase…');
+
+  const steps = [];
+  let created = null;
+  const externalUid = `${TEST_UID_PREFIX}${Date.now()}-${crypto.randomUUID().slice(0,8)}`;
+
+  try {
+    const token = await getIdToken(currentUser, true);
+    const createPayload = {
+      organization_id: SUPABASE.organizationId,
+      external_uid: externalUid,
+      role: 'agent',
+      first_name: 'Test',
+      last_name: 'Staging',
+      email: null,
+      phone: null,
+      active: true,
+      firebase_payload: {
+        staging_write_test: true,
+        created_by: currentUser.uid,
+        source: 'sentinelle-staging-write-test-v584'
+      }
+    };
+
+    const createResponse = await fetch(`${SUPABASE.url}/rest/v1/profiles`, {
+      method:'POST',
+      headers:supabaseHeaders(token, { 'Content-Type':'application/json', Prefer:'return=representation' }),
+      body:JSON.stringify(createPayload)
+    });
+    const createResult = await jsonOrText(createResponse);
+    if (!createResponse.ok || !Array.isArray(createResult) || createResult.length !== 1) {
+      throw new Error(`POST refusé (${createResponse.status}) : ${JSON.stringify(createResult)}`);
+    }
+    created = createResult[0];
+    if (!String(created.external_uid || '').startsWith(TEST_UID_PREFIX)) throw new Error('Sécurité : le profil créé ne porte pas le préfixe staging attendu.');
+    steps.push({ label:'POST profiles', ok:true, detail:`HTTP ${createResponse.status} · profil temporaire créé` });
+
+    const readResponse = await fetch(`${SUPABASE.url}/rest/v1/profiles?select=id,external_uid,first_name,last_name,role,active,firebase_payload&id=eq.${encodeURIComponent(created.id)}`, {
+      method:'GET', headers:supabaseHeaders(token)
+    });
+    const readResult = await jsonOrText(readResponse);
+    if (!readResponse.ok || !Array.isArray(readResult) || readResult.length !== 1) throw new Error(`Lecture après POST impossible (${readResponse.status}).`);
+    const safeMarker = readResult[0]?.firebase_payload?.staging_write_test === true && String(readResult[0]?.external_uid || '').startsWith(TEST_UID_PREFIX);
+    if (!safeMarker) throw new Error('Sécurité : marqueur du profil temporaire absent.');
+    steps.push({ label:'GET vérification', ok:true, detail:`HTTP ${readResponse.status} · profil relu` });
+
+    const patchResponse = await fetch(`${SUPABASE.url}/rest/v1/profiles?id=eq.${encodeURIComponent(created.id)}`, {
+      method:'PATCH',
+      headers:supabaseHeaders(token, { 'Content-Type':'application/json', Prefer:'return=representation' }),
+      body:JSON.stringify({ first_name:'Test modifié', active:false })
+    });
+    const patchResult = await jsonOrText(patchResponse);
+    if (!patchResponse.ok || !Array.isArray(patchResult) || patchResult.length !== 1 || patchResult[0].first_name !== 'Test modifié' || patchResult[0].active !== false) {
+      throw new Error(`PATCH refusé ou incohérent (${patchResponse.status}) : ${JSON.stringify(patchResult)}`);
+    }
+    steps.push({ label:'PATCH profiles', ok:true, detail:`HTTP ${patchResponse.status} · modification confirmée` });
+
+    const deleteResponse = await fetch(`${SUPABASE.url}/rest/v1/profiles?id=eq.${encodeURIComponent(created.id)}&external_uid=eq.${encodeURIComponent(externalUid)}`, {
+      method:'DELETE',
+      headers:supabaseHeaders(token, { Prefer:'return=representation' })
+    });
+    const deleteResult = await jsonOrText(deleteResponse);
+    if (!deleteResponse.ok || !Array.isArray(deleteResult) || deleteResult.length !== 1) {
+      throw new Error(`DELETE refusé (${deleteResponse.status}) : ${JSON.stringify(deleteResult)}`);
+    }
+    steps.push({ label:'DELETE profiles', ok:true, detail:`HTTP ${deleteResponse.status} · profil supprimé` });
+    created = null;
+
+    const verifyDeleteResponse = await fetch(`${SUPABASE.url}/rest/v1/profiles?select=id&id=eq.${encodeURIComponent(deleteResult[0].id)}`, {
+      method:'GET', headers:supabaseHeaders(token)
+    });
+    const verifyDeleteResult = await jsonOrText(verifyDeleteResponse);
+    if (!verifyDeleteResponse.ok || !Array.isArray(verifyDeleteResult) || verifyDeleteResult.length !== 0) throw new Error('Le profil temporaire existe encore après DELETE.');
+    steps.push({ label:'Nettoyage', ok:true, detail:'0 ligne restante · staging revenu à son état initial' });
+
+    renderWriteSteps(steps);
+    setStatus(writeStatus, 'Écriture validée', 'success');
+    setMessage(writeMessage, 'POST, lecture, PATCH et DELETE ont réussi avec les RLS du compte QG. Aucun profil de test n’est resté en base.', 'success');
+  } catch (error) {
+    console.error(error);
+    steps.push({ label:'Erreur', ok:false, detail:readableError(error) });
+
+    // Nettoyage de secours uniquement si le profil créé est bien notre ligne temporaire.
+    if (created?.id && String(created.external_uid || '').startsWith(TEST_UID_PREFIX)) {
+      try {
+        const token = await getIdToken(currentUser, true);
+        const cleanup = await fetch(`${SUPABASE.url}/rest/v1/profiles?id=eq.${encodeURIComponent(created.id)}&external_uid=eq.${encodeURIComponent(created.external_uid)}`, {
+          method:'DELETE', headers:supabaseHeaders(token, { Prefer:'return=minimal' })
+        });
+        steps.push({ label:'Nettoyage de secours', ok:cleanup.ok, detail:cleanup.ok ? `HTTP ${cleanup.status} · profil temporaire retiré` : `HTTP ${cleanup.status} · vérification manuelle requise` });
+      } catch (cleanupError) {
+        steps.push({ label:'Nettoyage de secours', ok:false, detail:'Échec réseau · vérifier profiles dans Supabase' });
+      }
+    }
+
+    renderWriteSteps(steps);
+    setStatus(writeStatus, 'Test incomplet', 'error');
+    setMessage(writeMessage, readableError(error), 'error');
+  } finally {
+    writeButton.disabled = !canRunWriteTest();
   }
 }
 
@@ -315,43 +362,38 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-setPersistence(auth, browserSessionPersistence).catch((error) => {
-  console.warn('Persistance de session indisponible', error);
-});
+setPersistence(auth, browserSessionPersistence).catch((error) => console.warn('Persistance de session indisponible', error));
 
 loginForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   loginButton.disabled = true;
   setMessage(authMessage, 'Connexion Firebase en cours…');
-
   const data = new FormData(loginForm);
   try {
-    await signInWithEmailAndPassword(
-      auth,
-      String(data.get('email') || '').trim(),
-      String(data.get('password') || '')
-    );
+    await signInWithEmailAndPassword(auth, String(data.get('email') || '').trim(), String(data.get('password') || ''));
   } catch (error) {
     console.error(error);
     setStatus(authStatus, 'Connexion refusée', 'error');
     setMessage(authMessage, readableError(error), 'error');
-  } finally {
-    loginButton.disabled = false;
-  }
+  } finally { loginButton.disabled = false; }
 });
 
 logoutButton.addEventListener('click', async () => {
   auditButton.disabled = true;
+  writeButton.disabled = true;
   await signOut(auth);
 });
 
 auditButton.addEventListener('click', runAudit);
+writeButton.addEventListener('click', runWriteTest);
 
 onAuthStateChanged(auth, async (user) => {
   currentUser = user;
   currentFirebaseProfile = null;
+  lastAuditSucceeded = false;
   summary.classList.add('hidden');
   countsZone.classList.add('hidden');
+  writeResults.classList.add('hidden');
   setMessage(auditMessage, '');
 
   if (!user) {
@@ -362,6 +404,7 @@ onAuthStateChanged(auth, async (user) => {
     setStatus(authStatus, 'Non connecté', 'neutral');
     setStatus(auditStatus, 'En attente', 'neutral');
     setMessage(authMessage, '');
+    refreshWriteAvailability();
     return;
   }
 
@@ -369,14 +412,14 @@ onAuthStateChanged(auth, async (user) => {
   sessionPanel.classList.remove('hidden');
   sessionAccount.textContent = user.email ? user.email.replace(/(^.).*(@.*$)/, '$1••••$2') : 'Compte Firebase connecté';
   setStatus(authStatus, 'Connecté', 'success');
-  setMessage(authMessage, 'Session Firebase ouverte uniquement pour ce portail de contrôle.', 'success');
+  setMessage(authMessage, 'Session Firebase ouverte pour le portail staging.', 'success');
 
   try {
     currentFirebaseProfile = await loadFirebaseProfile(user);
     auditCard.setAttribute('aria-disabled', 'false');
     auditButton.disabled = false;
     setStatus(auditStatus, 'Prêt', 'neutral');
-    setMessage(auditMessage, 'Profil Firestore retrouvé. Le contrôle Supabase peut être lancé.');
+    setMessage(auditMessage, 'Profil Firestore retrouvé. Lance le contrôle Supabase.');
   } catch (error) {
     console.error(error);
     auditCard.setAttribute('aria-disabled', 'true');
@@ -384,4 +427,5 @@ onAuthStateChanged(auth, async (user) => {
     setStatus(auditStatus, 'Profil absent', 'error');
     setMessage(auditMessage, readableError(error), 'error');
   }
+  refreshWriteAvailability();
 });

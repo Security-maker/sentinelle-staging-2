@@ -198,3 +198,46 @@ code { padding: 2px 6px; border-radius: 6px; background: rgba(255,255,255,.07); 
   .card-head, .section-title, .session-panel { align-items: stretch; flex-direction: column; }
   .technical-card dl div { grid-template-columns: 1fr; gap: 4px; }
 }
+
+.write-warning {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 14px 0 16px;
+  padding: 13px 14px;
+  border: 1px solid rgba(255, 194, 97, .34);
+  border-radius: 13px;
+  background: rgba(255, 194, 97, .07);
+  color: #ffe0ab;
+}
+.write-warning span { color: var(--text-soft); font-size: 13px; }
+.danger-safe {
+  min-height: 44px;
+  padding: 11px 16px;
+  border-radius: 13px;
+  border: 1px solid rgba(255, 194, 97, .48);
+  background: linear-gradient(135deg, rgba(125,72,0,.9), rgba(196,118,8,.9));
+  color: #fff7e8;
+  font-weight: 900;
+}
+.write-results {
+  display: grid;
+  gap: 9px;
+  margin-top: 16px;
+}
+.write-step {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 11px 13px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel-soft);
+  font-size: 13px;
+}
+.write-step span { color: var(--text-soft); }
+.write-step.ok strong { color: var(--success); }
+.write-step.bad strong { color: var(--danger); }
+@media (max-width: 720px) {
+  .write-step { flex-direction: column; gap: 4px; }
+}
