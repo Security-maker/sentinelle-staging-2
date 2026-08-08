@@ -1,46 +1,25 @@
-SENTINELLE PRO V5.8.4 — STAGING SUPABASE TEST D'ÉCRITURE CONTRÔLÉE
+SENTINELLE PRO V5.8.4 — STAGING SUPABASE — RLS AGENT
 
-OBJECTIF
-Valider les écritures Supabase via les JWT Firebase existants et les RLS du staging, sans toucher à la production Firebase.
+Objectif : valider les permissions Supabase Agent avant le parcours métier complet.
 
-CE TEST FAIT
-- Connexion Firebase Auth existante.
-- Lecture du profil Firestore users/{uid}.
-- Audit de lecture Supabase/RLS.
-- Pour un compte admin ou superviseur uniquement :
-  1. INSERT d'un profil agent temporaire dans public.profiles.
-  2. SELECT de contrôle.
-  3. UPDATE de ce profil temporaire.
-  4. DELETE du même profil.
-  5. SELECT final pour confirmer qu'il ne reste aucune ligne de test.
+ORDRE OBLIGATOIRE
+1. Dans Supabase STAGING > SQL Editor, exécuter :
+   supabase/rls-agent-hardening-v584.sql
+2. Sur GitHub staging, remplacer index.html et staging-app.js (ou publier ce pack complet).
+3. Attendre le déploiement GitHub Pages puis recharger la page.
+4. Se connecter avec un compte AGENT de test.
+5. Lancer Étape 2 : contrôle lecture.
+6. Lancer Étape 4 : test sécurité RLS Agent.
+
+ATTENDU
+- Profils/missions/rapports d'autres agents invisibles.
+- Création de profil, modification de site et création de mission refusées à l'agent.
+- Mise à jour de sa mission autorisée.
+- Création de son shift autorisée.
+- Création de son rapport verrouillé autorisée.
+- Modification d'un rapport existant refusée.
 
 SÉCURITÉ
-- Le profil temporaire porte toujours un external_uid commençant par staging-write-test-.
-- firebase_payload.staging_write_test=true est vérifié avant la suite du test.
-- Un nettoyage de secours est tenté si une étape échoue après la création.
-- Aucune écriture Firestore.
-- Aucune écriture Firebase Storage.
-- Aucune mission, vacation, MCI, planning, document ou notification n'est modifié.
-- Aucun Service Worker.
-- OneSignal absent.
-- Ce test ne crée PAS de compte Firebase Auth et ne constitue donc pas encore la création opérationnelle complète d'un nouvel agent.
-
-DÉPLOIEMENT
-Remplacer les fichiers du repo staging actuel par ce paquet, ou au minimum :
-- index.html
-- staging-app.js
-- staging-style.css
-- README-DEPLOIEMENT.txt
-- SHA256SUMS.txt
-
-NE PAS DÉPLOYER DANS LE REPO AZERRAP DE PRODUCTION.
-
-RÉSULTAT ATTENDU
-Avec un compte QG admin/superviseur :
-- audit lecture validé ;
-- bouton Étape 3 activé ;
-- POST profiles : OK ;
-- GET vérification : OK ;
-- PATCH profiles : OK ;
-- DELETE profiles : OK ;
-- Nettoyage : 0 ligne restante.
+- La fonction staging_probe_agent_rls_v584 utilise des sous-transactions : toutes les écritures de sonde réussies sont volontairement annulées.
+- Aucun Firestore, Firebase Storage, OneSignal ou Worker n'est modifié par ce test.
+- Ce SQL est prévu uniquement pour le projet Supabase staging.

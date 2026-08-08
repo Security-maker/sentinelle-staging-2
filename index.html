@@ -10,7 +10,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://www.gstatic.com; style-src 'self'; img-src 'self' data:; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://*.firebaseapp.com https://ksoyqtsrhtsfbwmxipqz.supabase.co; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'">
   <title>Sentinelle Pro — Staging Supabase test écriture</title>
   <link rel="icon" href="./assets/favicon.png">
-  <link rel="stylesheet" href="./staging-style.css?v=2">
+  <link rel="stylesheet" href="./staging-style.css?v=3">
 </head>
 <body>
   <div class="staging-ribbon">STAGING · TEST SUPABASE · ÉCRITURE CONTRÔLÉE</div>
@@ -19,8 +19,8 @@
       <img src="./assets/logo.png" alt="Sentinelle Pro" class="logo">
       <div>
         <p class="eyebrow">Sentinelle Pro V5.8.4</p>
-        <h1>Validation lecture + écriture Supabase</h1>
-        <p class="subtitle">Portail isolé de staging. Les écritures sont limitées à un profil agent temporaire auto-supprimé.</p>
+        <h1>Validation RLS Agent + écriture Supabase</h1>
+        <p class="subtitle">Portail isolé de staging. Après le test QG, il vérifie aussi que les règles RLS protègent réellement les opérations Agent.</p>
       </div>
     </header>
 
@@ -32,7 +32,7 @@
         <span>✓ Test POST → PATCH → DELETE uniquement sur un profil temporaire</span>
         <span>✓ Le profil de test porte le préfixe <code>staging-write-test-</code></span>
         <span>✓ Aucun Service Worker ni OneSignal</span>
-        <span>✓ Aucune écriture Firestore, Storage, mission, shift ou MCI</span>
+        <span>✓ Aucun Service Worker ni OneSignal côté métier</span>
       </div>
     </section>
 
@@ -132,6 +132,33 @@
       <div id="write-results" class="write-results hidden"></div>
     </section>
 
+
+
+    <section id="security-card" class="card muted-card" aria-disabled="true">
+      <div class="card-head">
+        <div>
+          <p class="kicker">Étape 4</p>
+          <h2>Test de sécurité RLS Agent</h2>
+        </div>
+        <span id="security-status" class="status neutral">En attente</span>
+      </div>
+
+      <p class="explanation">
+        Réservé au compte <code>agent</code>. La sonde vérifie directement dans Supabase que l’agent ne peut pas créer
+        de profil, modifier un site, créer une mission ou modifier un rapport existant, tout en conservant les écritures
+        nécessaires sur sa propre mission, son shift et son rapport. Toutes les écritures de sonde sont annulées automatiquement.
+      </p>
+
+      <div class="write-warning">
+        <strong>Sonde sans donnée persistante</strong>
+        <span>Le SQL de durcissement doit être exécuté dans Supabase avant de lancer ce test.</span>
+      </div>
+
+      <button id="security-button" type="button" class="danger-safe" disabled>Lancer le test sécurité Agent</button>
+      <p id="security-message" class="message" aria-live="polite"></p>
+      <div id="security-results" class="write-results hidden"></div>
+    </section>
+
     <section class="card technical-card">
       <h2>Environnement contrôlé</h2>
       <dl>
@@ -143,6 +170,6 @@
     </section>
   </main>
 
-  <script type="module" src="./staging-app.js?v=2"></script>
+  <script type="module" src="./staging-app.js?v=3"></script>
 </body>
 </html>

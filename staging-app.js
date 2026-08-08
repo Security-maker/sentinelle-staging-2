@@ -65,6 +65,11 @@ const writeStatus = $('#write-status');
 const writeMessage = $('#write-message');
 const writeButton = $('#write-button');
 const writeResults = $('#write-results');
+const securityCard = $('#security-card');
+const securityStatus = $('#security-status');
+const securityMessage = $('#security-message');
+const securityButton = $('#security-button');
+const securityResults = $('#security-results');
 
 let currentUser = null;
 let currentFirebaseProfile = null;
@@ -166,6 +171,30 @@ function canRunWriteTest() {
   return Boolean(currentUser && lastAuditSucceeded && ['admin','superviseur'].includes(role));
 }
 
+function canRunAgentSecurityTest() {
+  const role = String(currentFirebaseProfile?.role || '');
+  return Boolean(currentUser && lastAuditSucceeded && role === 'agent');
+}
+
+function refreshSecurityAvailability() {
+  const allowed = canRunAgentSecurityTest();
+  securityCard.setAttribute('aria-disabled', allowed ? 'false' : 'true');
+  securityButton.disabled = !allowed;
+  if (!currentUser) {
+    setStatus(securityStatus, 'En attente', 'neutral');
+    setMessage(securityMessage, 'Connecte un compte agent pour activer ce test.');
+  } else if (String(currentFirebaseProfile?.role || '') !== 'agent') {
+    setStatus(securityStatus, 'Agent requis', 'warning');
+    setMessage(securityMessage, 'Cette sonde est volontairement réservée à un compte agent.', 'warning');
+  } else if (!lastAuditSucceeded) {
+    setStatus(securityStatus, 'Audit requis', 'neutral');
+    setMessage(securityMessage, 'Lance d’abord le contrôle de lecture Supabase avec ce compte agent.');
+  } else {
+    setStatus(securityStatus, 'Prêt', 'success');
+    setMessage(securityMessage, 'Le test RLS Agent peut être lancé. Les écritures de sonde sont automatiquement annulées.', 'success');
+  }
+}
+
 function refreshWriteAvailability() {
   const allowed = canRunWriteTest();
   writeCard.setAttribute('aria-disabled', allowed ? 'false' : 'true');
@@ -183,6 +212,7 @@ function refreshWriteAvailability() {
     setStatus(writeStatus, 'Prêt', 'success');
     setMessage(writeMessage, 'Le test temporaire peut être lancé. Aucune donnée Firebase ne sera modifiée.', 'success');
   }
+  refreshSecurityAvailability();
 }
 
 async function runAudit() {
@@ -254,6 +284,7 @@ async function runWriteTest() {
   if (!canRunWriteTest()) return;
   writeButton.disabled = true;
   writeResults.classList.add('hidden');
+  securityResults.classList.add('hidden');
   setStatus(writeStatus, 'Test en cours', 'warning');
   setMessage(writeMessage, 'Création d’un profil temporaire Supabase…');
 
@@ -358,6 +389,67 @@ async function runWriteTest() {
   }
 }
 
+
+function renderSecuritySteps(steps) {
+  securityResults.innerHTML = steps.map(step => `
+    <div class="write-step ${step.ok ? 'ok' : 'bad'}">
+      <span>${escapeHtml(step.label)}</span>
+      <strong>${escapeHtml(step.detail)}</strong>
+    </div>`).join('');
+  securityResults.classList.remove('hidden');
+}
+
+async function runAgentSecurityTest() {
+  if (!canRunAgentSecurityTest()) return;
+  securityButton.disabled = true;
+  securityResults.classList.add('hidden');
+  setStatus(securityStatus, 'Test en cours', 'warning');
+  setMessage(securityMessage, 'Exécution de la sonde RLS directement dans Supabase…');
+
+  try {
+    const token = await getIdToken(currentUser, true);
+    const response = await fetch(`${SUPABASE.url}/rest/v1/rpc/staging_probe_agent_rls_v584`, {
+      method:'POST',
+      headers:supabaseHeaders(token, { 'Content-Type':'application/json' }),
+      body:'{}'
+    });
+    const result = await jsonOrText(response);
+    if (!response.ok) {
+      throw new Error(`Sonde RLS indisponible (${response.status}) : ${JSON.stringify(result)}`);
+    }
+    if (!result || result.ok !== true) throw new Error(result?.error || 'Réponse de sonde invalide.');
+
+    const tests = [
+      ['Profils étrangers invisibles', Number(result.foreign_profiles_visible) === 0, `${result.foreign_profiles_visible ?? '—'} profil étranger visible`],
+      ['Missions étrangères invisibles', Number(result.foreign_missions_visible) === 0, `${result.foreign_missions_visible ?? '—'} mission étrangère visible`],
+      ['Rapports étrangers invisibles', Number(result.foreign_reports_visible) === 0, `${result.foreign_reports_visible ?? '—'} rapport étranger visible`],
+      ['Création profil interdite', result.profile_insert_blocked === true, result.profile_insert_blocked ? 'bloquée par Supabase' : 'AUTORISÉE à tort'],
+      ['Modification site interdite', result.site_update_blocked === true, result.site_update_blocked ? 'bloquée par Supabase' : 'AUTORISÉE à tort'],
+      ['Création mission interdite', result.mission_insert_blocked === true, result.mission_insert_blocked ? 'bloquée par Supabase' : 'AUTORISÉE à tort'],
+      ['Mise à jour de sa mission', result.mission_own_update_allowed !== false, result.mission_own_update_allowed === null ? 'non testée : aucune mission propre' : 'autorisée puis annulée'],
+      ['Création de son shift', result.shift_own_insert_allowed === true, result.shift_own_insert_allowed ? 'autorisée puis annulée' : 'refusée à tort'],
+      ['Création de son rapport verrouillé', result.report_own_insert_allowed === true, result.report_own_insert_allowed ? 'autorisée puis annulée' : 'refusée à tort'],
+      ['Modification rapport existant interdite', result.report_own_update_blocked !== false, result.report_own_update_blocked === null ? 'non testée : aucun rapport propre' : 'bloquée par Supabase']
+    ];
+    renderSecuritySteps(tests.map(([label,ok,detail]) => ({label,ok,detail})));
+    const failed = tests.filter(([,ok]) => !ok);
+    if (failed.length) {
+      setStatus(securityStatus, 'Sécurité à corriger', 'error');
+      setMessage(securityMessage, `${failed.length} contrôle(s) RLS ne correspondent pas au comportement attendu.`, 'error');
+    } else {
+      setStatus(securityStatus, 'RLS Agent validées', 'success');
+      setMessage(securityMessage, 'Les accès Agent sensibles sont correctement cloisonnés. Aucune donnée de sonde n’est restée en base.', 'success');
+    }
+  } catch (error) {
+    console.error(error);
+    renderSecuritySteps([{label:'Erreur',ok:false,detail:readableError(error)}]);
+    setStatus(securityStatus, 'Test impossible', 'error');
+    setMessage(securityMessage, readableError(error), 'error');
+  } finally {
+    securityButton.disabled = !canRunAgentSecurityTest();
+  }
+}
+
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
@@ -386,6 +478,7 @@ logoutButton.addEventListener('click', async () => {
 
 auditButton.addEventListener('click', runAudit);
 writeButton.addEventListener('click', runWriteTest);
+securityButton.addEventListener('click', runAgentSecurityTest);
 
 onAuthStateChanged(auth, async (user) => {
   currentUser = user;
@@ -394,6 +487,7 @@ onAuthStateChanged(auth, async (user) => {
   summary.classList.add('hidden');
   countsZone.classList.add('hidden');
   writeResults.classList.add('hidden');
+  securityResults.classList.add('hidden');
   setMessage(auditMessage, '');
 
   if (!user) {
@@ -405,6 +499,7 @@ onAuthStateChanged(auth, async (user) => {
     setStatus(auditStatus, 'En attente', 'neutral');
     setMessage(authMessage, '');
     refreshWriteAvailability();
+    refreshSecurityAvailability();
     return;
   }
 
@@ -428,4 +523,5 @@ onAuthStateChanged(auth, async (user) => {
     setMessage(auditMessage, readableError(error), 'error');
   }
   refreshWriteAvailability();
+  refreshSecurityAvailability();
 });
