@@ -23,3 +23,13 @@ SÉCURITÉ
 - La fonction staging_probe_agent_rls_v584 utilise des sous-transactions : toutes les écritures de sonde réussies sont volontairement annulées.
 - Aucun Firestore, Firebase Storage, OneSignal ou Worker n'est modifié par ce test.
 - Ce SQL est prévu uniquement pour le projet Supabase staging.
+
+
+ÉTAPE 5 — SCÉNARIO MÉTIER SUPABASE
+1. Dans Supabase STAGING uniquement, exécuter supabase/staging-business-flow-v584.sql.
+2. Déployer index.html + staging-app.js sur le repo staging.
+3. Compte QG : Étape 2 puis Étape 5, choisir agent + site, créer la mission.
+4. Déconnexion, connexion avec l'agent choisi, Étape 2, puis Étape 5 : Démarrer → MCI → Terminer.
+5. Déconnexion, reconnexion QG, Étape 2, puis Vérifier et nettoyer.
+6. Le nettoyage RPC ne peut supprimer que les lignes préfixées staging-flow- et marquées staging_business_flow=true.
+Aucune écriture Firebase n'est effectuée par cette étape.

@@ -44,6 +44,8 @@ const EXPECTED_COUNTS = Object.freeze({
 
 const TOTAL_EXPECTED = Object.values(EXPECTED_COUNTS).reduce((sum, value) => sum + value, 0);
 const TEST_UID_PREFIX = 'staging-write-test-';
+const BUSINESS_FLOW_STORAGE_KEY = 'sentinelle_staging_business_flow_v584';
+const BUSINESS_FLOW_PREFIX = 'staging-flow-';
 
 const $ = (selector) => document.querySelector(selector);
 const authStatus = $('#auth-status');
@@ -70,6 +72,19 @@ const securityStatus = $('#security-status');
 const securityMessage = $('#security-message');
 const securityButton = $('#security-button');
 const securityResults = $('#security-results');
+const flowCard = $('#flow-card');
+const flowStatus = $('#flow-status');
+const flowMessage = $('#flow-message');
+const flowQGPanel = $('#flow-qg-panel');
+const flowAgentPanel = $('#flow-agent-panel');
+const flowAgentSelect = $('#flow-agent-select');
+const flowSiteSelect = $('#flow-site-select');
+const flowCreateButton = $('#flow-create-button');
+const flowStartButton = $('#flow-start-button');
+const flowMciButton = $('#flow-mci-button');
+const flowEndButton = $('#flow-end-button');
+const flowVerifyButton = $('#flow-verify-button');
+const flowResults = $('#flow-results');
 
 let currentUser = null;
 let currentFirebaseProfile = null;
@@ -195,6 +210,566 @@ function refreshSecurityAvailability() {
   }
 }
 
+
+function loadBusinessFlowState() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(BUSINESS_FLOW_STORAGE_KEY) || 'null');
+    return parsed && parsed.flowId && parsed.missionFirebaseId ? parsed : null;
+  } catch (_) { return null; }
+}
+
+function saveBusinessFlowState(state) {
+  localStorage.setItem(BUSINESS_FLOW_STORAGE_KEY, JSON.stringify(state));
+}
+
+function clearBusinessFlowState() {
+  localStorage.removeItem(BUSINESS_FLOW_STORAGE_KEY);
+}
+
+function flowRole() {
+  return String(currentFirebaseProfile?.role || '');
+}
+
+function isQGRole() {
+  return ['admin','superviseur'].includes(flowRole());
+}
+
+function flowReady() {
+  return Boolean(currentUser && lastAuditSucceeded);
+}
+
+function renderFlowSteps(steps) {
+  flowResults.innerHTML = steps.map(step => `
+    <div class="write-step ${step.ok ? 'ok' : 'bad'}">
+      <span>${escapeHtml(step.label)}</span>
+      <strong>${escapeHtml(step.detail)}</strong>
+    </div>`).join('');
+  flowResults.classList.toggle('hidden', !steps.length);
+}
+
+async function supabaseRequest(token, tableOrRpc, {
+  method='GET', query='', body=null, prefer='', rpc=false
+} = {}) {
+  const url = rpc
+    ? `${SUPABASE.url}/rest/v1/rpc/${tableOrRpc}`
+    : `${SUPABASE.url}/rest/v1/${tableOrRpc}${query ? `?${query}` : ''}`;
+  const headers = supabaseHeaders(token, {
+    ...(body !== null ? {'Content-Type':'application/json'} : {}),
+    ...(prefer ? {Prefer:prefer} : {})
+  });
+  const response = await fetch(url, {
+    method,
+    headers,
+    ...(body !== null ? {body:JSON.stringify(body)} : {})
+  });
+  const result = await jsonOrText(response);
+  return { response, result };
+}
+
+async function refreshBusinessFlowUI() {
+  if (!flowCard) return;
+  const role = flowRole();
+  const state = loadBusinessFlowState();
+  const ready = flowReady();
+
+  flowQGPanel.classList.toggle('hidden', !isQGRole());
+  flowAgentPanel.classList.toggle('hidden', role !== 'agent');
+  const ownAgentFlow = Boolean(ready && role === 'agent' && state && state.agentUid === currentUser?.uid);
+  flowCreateButton.disabled = !(ready && isQGRole() && !state);
+  flowVerifyButton.disabled = !(ready && isQGRole() && state);
+  flowStartButton.disabled = !(ownAgentFlow && !['active','mci','completed'].includes(String(state.stage || '')));
+  flowMciButton.disabled = !(ownAgentFlow && state.stage === 'active');
+  flowEndButton.disabled = !(ownAgentFlow && state.stage === 'mci');
+
+  if (!currentUser) {
+    setStatus(flowStatus, 'En attente', 'neutral');
+    setMessage(flowMessage, 'Connecte d’abord un compte QG ou agent puis valide l’étape 2.');
+    renderFlowSteps([]);
+    return;
+  }
+  if (!lastAuditSucceeded) {
+    setStatus(flowStatus, 'Audit requis', 'neutral');
+    setMessage(flowMessage, 'Lance le contrôle Supabase de l’étape 2 avant le scénario métier.');
+    return;
+  }
+
+  try {
+    const token = await getIdToken(currentUser, true);
+    if (isQGRole()) {
+      const [{response:agentsResponse,result:agents}, {response:sitesResponse,result:sites}] = await Promise.all([
+        supabaseRequest(token, 'profiles', {
+          query:'select=id,external_uid,first_name,last_name,email,role,active&role=eq.agent&active=eq.true&order=last_name.asc'
+        }),
+        supabaseRequest(token, 'sites', {
+          query:'select=id,firebase_id,name,address,active&active=eq.true&order=name.asc'
+        })
+      ]);
+      if (agentsResponse.ok && Array.isArray(agents)) {
+        flowAgentSelect.innerHTML = '<option value="">Choisir un agent</option>' + agents
+          .filter(agent => agent.external_uid)
+          .map(agent => {
+            const label = `${agent.first_name || ''} ${agent.last_name || ''}`.trim() || agent.email || agent.external_uid;
+            return `<option value="${escapeHtml(agent.external_uid)}" data-label="${escapeHtml(label)}">${escapeHtml(label)}</option>`;
+          }).join('');
+        if (state?.agentUid) flowAgentSelect.value = state.agentUid;
+      }
+      if (sitesResponse.ok && Array.isArray(sites)) {
+        flowSiteSelect.innerHTML = '<option value="">Choisir un site</option>' + sites
+          .filter(site => site.firebase_id)
+          .map(site => `<option value="${escapeHtml(site.firebase_id)}" data-label="${escapeHtml(site.name || site.firebase_id)}">${escapeHtml(site.name || site.firebase_id)}</option>`)
+          .join('');
+        if (state?.siteFirebaseId) flowSiteSelect.value = state.siteFirebaseId;
+      }
+      setStatus(flowStatus, state ? 'Scénario en cours' : 'QG prêt', state ? 'warning' : 'success');
+      setMessage(
+        flowMessage,
+        state
+          ? `Mission staging ${state.missionFirebaseId}. Passe au compte agent ${state.agentLabel || state.agentUid}, puis reviens QG après la fin de poste.`
+          : 'Crée une mission temporaire affectée à un agent. Elle n’existe que dans Supabase staging.',
+        state ? 'warning' : 'success'
+      );
+    } else if (role === 'agent') {
+      if (!state) {
+        setStatus(flowStatus, 'Mission staging absente', 'warning');
+        setMessage(flowMessage, 'Aucune mission de scénario n’a encore été préparée par le QG.', 'warning');
+      } else if (state.agentUid !== currentUser.uid) {
+        setStatus(flowStatus, 'Autre agent requis', 'warning');
+        setMessage(flowMessage, `Cette mission staging est affectée à ${state.agentLabel || 'un autre agent'}.`, 'warning');
+      } else {
+        const {response,result} = await supabaseRequest(token, 'missions', {
+          query:`select=id,firebase_id,status,scheduled_start,scheduled_end,firebase_site_id,payload&firebase_id=eq.${encodeURIComponent(state.missionFirebaseId)}`
+        });
+        const mission = response.ok && Array.isArray(result) ? result[0] : null;
+        if (!mission) {
+          setStatus(flowStatus, 'Mission introuvable', 'error');
+          setMessage(flowMessage, 'La mission staging n’est pas visible pour ce compte agent. Vérifie le compte utilisé.', 'error');
+        } else {
+          setStatus(flowStatus, `Agent · ${mission.status || 'planned'}`, mission.status === 'completed' ? 'success' : 'warning');
+          setMessage(flowMessage, `Mission visible : ${state.siteLabel || mission.firebase_site_id}. Utilise les boutons dans l’ordre Démarrer → MCI → Terminer.`, 'success');
+        }
+      }
+    } else {
+      setStatus(flowStatus, 'Rôle non prévu', 'warning');
+      setMessage(flowMessage, 'Ce scénario utilise uniquement un compte QG et un compte agent.', 'warning');
+    }
+  } catch (error) {
+    console.error(error);
+    setStatus(flowStatus, 'État indisponible', 'error');
+    setMessage(flowMessage, readableError(error), 'error');
+  }
+}
+
+async function createBusinessFlowMission() {
+  if (!(flowReady() && isQGRole())) return;
+  const agentUid = String(flowAgentSelect.value || '').trim();
+  const siteFirebaseId = String(flowSiteSelect.value || '').trim();
+  if (!agentUid || !siteFirebaseId) {
+    setStatus(flowStatus, 'Choix requis', 'warning');
+    setMessage(flowMessage, 'Choisis un agent et un site avant de créer la mission.', 'warning');
+    return;
+  }
+  if (loadBusinessFlowState()) {
+    setStatus(flowStatus, 'Scénario déjà présent', 'warning');
+    setMessage(flowMessage, 'Nettoie d’abord le scénario staging précédent avec le compte QG.', 'warning');
+    return;
+  }
+
+  flowCreateButton.disabled = true;
+  renderFlowSteps([]);
+  setStatus(flowStatus, 'Création mission', 'warning');
+  setMessage(flowMessage, 'Création de la mission temporaire dans Supabase staging…');
+
+  try {
+    const token = await getIdToken(currentUser, true);
+    const flowId = `v584-${Date.now()}-${crypto.randomUUID().slice(0,8)}`;
+    const missionFirebaseId = `${BUSINESS_FLOW_PREFIX}${flowId}-mission`;
+    const selectedAgent = flowAgentSelect.selectedOptions[0];
+    const selectedSite = flowSiteSelect.selectedOptions[0];
+    const agentLabel = selectedAgent?.dataset?.label || selectedAgent?.textContent || agentUid;
+    const siteLabel = selectedSite?.dataset?.label || selectedSite?.textContent || siteFirebaseId;
+    const now = new Date();
+    const end = new Date(now.getTime() + 60 * 60 * 1000);
+    const payload = {
+      staging_business_flow:true,
+      staging_flow_id:flowId,
+      staging_stage:'planned',
+      agent_label:agentLabel,
+      site_label:siteLabel,
+      created_by:currentUser.uid,
+      source:'sentinelle-staging-business-flow-v584'
+    };
+
+    const {response,result} = await supabaseRequest(token, 'missions', {
+      method:'POST',
+      body:{
+        organization_id:SUPABASE.organizationId,
+        firebase_id:missionFirebaseId,
+        firebase_site_id:siteFirebaseId,
+        firebase_agent_uid:agentUid,
+        status:'planned',
+        scheduled_start:now.toISOString(),
+        scheduled_end:end.toISOString(),
+        payload
+      },
+      prefer:'return=representation'
+    });
+    if (!response.ok || !Array.isArray(result) || result.length !== 1) {
+      throw new Error(`Création mission refusée (${response.status}) : ${JSON.stringify(result)}`);
+    }
+
+    saveBusinessFlowState({
+      flowId,
+      missionFirebaseId,
+      missionId:result[0].id,
+      agentUid,
+      agentLabel,
+      siteFirebaseId,
+      siteLabel,
+      createdAt:new Date().toISOString()
+    });
+    renderFlowSteps([
+      {label:'QG · création mission',ok:true,detail:`HTTP ${response.status} · ${missionFirebaseId}`},
+      {label:'Affectation',ok:true,detail:`${agentLabel} · ${siteLabel}`},
+      {label:'Suite',ok:true,detail:'Déconnexion QG → connexion avec cet agent'}
+    ]);
+    setStatus(flowStatus, 'Mission créée', 'success');
+    setMessage(flowMessage, `Mission staging créée pour ${agentLabel}. Déconnecte-toi puis connecte ce compte agent.`, 'success');
+  } catch (error) {
+    console.error(error);
+    renderFlowSteps([{label:'Création mission',ok:false,detail:readableError(error)}]);
+    setStatus(flowStatus, 'Création impossible', 'error');
+    setMessage(flowMessage, readableError(error), 'error');
+  } finally {
+    await refreshBusinessFlowUI();
+  }
+}
+
+async function getOwnFlowMissionAndShift(token, state) {
+  const {response:missionResponse,result:missions} = await supabaseRequest(token, 'missions', {
+    query:`select=id,firebase_id,firebase_site_id,firebase_agent_uid,status,payload&firebase_id=eq.${encodeURIComponent(state.missionFirebaseId)}`
+  });
+  if (!missionResponse.ok || !Array.isArray(missions) || missions.length !== 1) {
+    throw new Error('Mission staging non visible pour cet agent.');
+  }
+  const mission = missions[0];
+  const {response:shiftResponse,result:shifts} = await supabaseRequest(token, 'shifts', {
+    query:`select=id,firebase_id,firebase_mission_id,firebase_site_id,firebase_agent_uid,status,started_at,completed_at,payload&firebase_mission_id=eq.${encodeURIComponent(state.missionFirebaseId)}&order=created_at.desc&limit=1`
+  });
+  if (!shiftResponse.ok) throw new Error(`Lecture shift impossible (${shiftResponse.status}).`);
+  return {mission, shift:Array.isArray(shifts) ? shifts[0] || null : null};
+}
+
+async function startBusinessFlowShift() {
+  const state = loadBusinessFlowState();
+  if (!(flowReady() && flowRole() === 'agent' && state?.agentUid === currentUser.uid)) return;
+  flowStartButton.disabled = true;
+  setStatus(flowStatus, 'Prise de poste', 'warning');
+  setMessage(flowMessage, 'Création du shift et du rapport automatique de prise de service…');
+  try {
+    const token = await getIdToken(currentUser, true);
+    const {mission,shift} = await getOwnFlowMissionAndShift(token, state);
+    if (mission.status === 'completed') throw new Error('Cette mission staging est déjà terminée.');
+    if (shift?.status === 'active') throw new Error('Un shift staging est déjà actif.');
+
+    const shiftFirebaseId = `${BUSINESS_FLOW_PREFIX}${state.flowId}-shift`;
+    const now = new Date().toISOString();
+    const shiftPayload = {
+      staging_business_flow:true,
+      staging_flow_id:state.flowId,
+      staging_stage:'active',
+      isLocked:true,
+      source:'sentinelle-staging-business-flow-v584'
+    };
+    const {response:shiftCreate,result:shiftCreated} = await supabaseRequest(token, 'shifts', {
+      method:'POST',
+      body:{
+        organization_id:SUPABASE.organizationId,
+        firebase_id:shiftFirebaseId,
+        firebase_mission_id:state.missionFirebaseId,
+        firebase_site_id:state.siteFirebaseId,
+        firebase_agent_uid:currentUser.uid,
+        status:'active',
+        started_at:now,
+        payload:shiftPayload
+      },
+      prefer:'return=representation'
+    });
+    if (!shiftCreate.ok || !Array.isArray(shiftCreated) || shiftCreated.length !== 1) {
+      throw new Error(`Création shift refusée (${shiftCreate.status}) : ${JSON.stringify(shiftCreated)}`);
+    }
+
+    const startReportId = `${BUSINESS_FLOW_PREFIX}${state.flowId}-report-start`;
+    const {response:startReport,result:startResult} = await supabaseRequest(token, 'reports', {
+      method:'POST',
+      body:{
+        organization_id:SUPABASE.organizationId,
+        firebase_id:startReportId,
+        firebase_mission_id:state.missionFirebaseId,
+        firebase_shift_id:shiftFirebaseId,
+        firebase_site_id:state.siteFirebaseId,
+        firebase_agent_uid:currentUser.uid,
+        occurred_at:now,
+        category:'Prise de service',
+        severity:'Normal',
+        message:`Prise de poste staging confirmée sur ${state.siteLabel || state.siteFirebaseId}.`,
+        payload:{
+          staging_business_flow:true,
+          staging_flow_id:state.flowId,
+          eventType:'shift_start',
+          isLocked:true
+        }
+      },
+      prefer:'return=representation'
+    });
+    if (!startReport.ok || !Array.isArray(startResult) || startResult.length !== 1) {
+      throw new Error(`Rapport prise de poste refusé (${startReport.status}) : ${JSON.stringify(startResult)}`);
+    }
+
+    const missionPayload = {...(mission.payload || {}), staging_stage:'active', shift_firebase_id:shiftFirebaseId};
+    const {response:missionPatch,result:missionPatched} = await supabaseRequest(token, 'missions', {
+      method:'PATCH',
+      query:`id=eq.${encodeURIComponent(mission.id)}`,
+      body:{status:'active',actual_start:now,payload:missionPayload},
+      prefer:'return=representation'
+    });
+    if (!missionPatch.ok || !Array.isArray(missionPatched) || missionPatched.length !== 1 || missionPatched[0].status !== 'active') {
+      throw new Error(`Mise à jour mission refusée (${missionPatch.status}) : ${JSON.stringify(missionPatched)}`);
+    }
+
+    saveBusinessFlowState({...state, shiftFirebaseId, shiftId:shiftCreated[0].id, stage:'active'});
+    renderFlowSteps([
+      {label:'Agent · mission propre',ok:true,detail:'visible par RLS'},
+      {label:'Agent · prise de poste',ok:true,detail:`HTTP ${shiftCreate.status} · shift actif`},
+      {label:'Rapport automatique',ok:true,detail:`HTTP ${startReport.status} · prise de service`},
+      {label:'Mise à jour mission',ok:true,detail:`HTTP ${missionPatch.status} · active`}
+    ]);
+    setStatus(flowStatus, 'Poste actif', 'success');
+    setMessage(flowMessage, 'Prise de poste Supabase validée. Lance maintenant le MCI test.', 'success');
+  } catch (error) {
+    console.error(error);
+    renderFlowSteps([{label:'Prise de poste',ok:false,detail:readableError(error)}]);
+    setStatus(flowStatus, 'Prise de poste impossible', 'error');
+    setMessage(flowMessage, readableError(error), 'error');
+  } finally {
+    await refreshBusinessFlowUI();
+  }
+}
+
+async function createBusinessFlowMci() {
+  const state = loadBusinessFlowState();
+  if (!(flowReady() && flowRole() === 'agent' && state?.agentUid === currentUser.uid)) return;
+  flowMciButton.disabled = true;
+  setStatus(flowStatus, 'Création MCI', 'warning');
+  setMessage(flowMessage, 'Création d’un rapport MCI verrouillé et tentative de modification interdite…');
+  try {
+    const token = await getIdToken(currentUser, true);
+    const {mission,shift} = await getOwnFlowMissionAndShift(token, state);
+    if (!shift || shift.status !== 'active') throw new Error('Démarre d’abord la mission staging.');
+
+    const reportFirebaseId = `${BUSINESS_FLOW_PREFIX}${state.flowId}-report-mci`;
+    const now = new Date().toISOString();
+    const {response:createResponse,result:createResult} = await supabaseRequest(token, 'reports', {
+      method:'POST',
+      body:{
+        organization_id:SUPABASE.organizationId,
+        firebase_id:reportFirebaseId,
+        firebase_mission_id:state.missionFirebaseId,
+        firebase_shift_id:shift.firebase_id,
+        firebase_site_id:state.siteFirebaseId,
+        firebase_agent_uid:currentUser.uid,
+        occurred_at:now,
+        category:'Incident',
+        severity:'Important',
+        message:'MCI staging : contrôle du parcours Supabase de bout en bout.',
+        payload:{
+          staging_business_flow:true,
+          staging_flow_id:state.flowId,
+          isLocked:true,
+          source:'sentinelle-staging-business-flow-v584'
+        }
+      },
+      prefer:'return=representation'
+    });
+    if (!createResponse.ok || !Array.isArray(createResult) || createResult.length !== 1) {
+      throw new Error(`Création MCI refusée (${createResponse.status}) : ${JSON.stringify(createResult)}`);
+    }
+
+    const createdReport = createResult[0];
+    const {response:patchResponse,result:patchResult} = await supabaseRequest(token, 'reports', {
+      method:'PATCH',
+      query:`id=eq.${encodeURIComponent(createdReport.id)}`,
+      body:{message:'MODIFICATION QUI DOIT ÊTRE BLOQUÉE'},
+      prefer:'return=representation'
+    });
+    const updateBlocked = !patchResponse.ok || (Array.isArray(patchResult) && patchResult.length === 0);
+    if (!updateBlocked) throw new Error('Sécurité : l’agent a réussi à modifier un rapport verrouillé.');
+
+    saveBusinessFlowState({...state, mciReportId:createdReport.id, mciReportFirebaseId:reportFirebaseId, stage:'mci'});
+    renderFlowSteps([
+      {label:'Agent · création MCI',ok:true,detail:`HTTP ${createResponse.status} · rapport verrouillé`},
+      {label:'Agent · PATCH du MCI',ok:true,detail:'bloqué par RLS comme attendu'}
+    ]);
+    setStatus(flowStatus, 'MCI validé', 'success');
+    setMessage(flowMessage, 'Le MCI a été créé et sa modification a été bloquée. Tu peux terminer la mission.', 'success');
+  } catch (error) {
+    console.error(error);
+    renderFlowSteps([{label:'MCI',ok:false,detail:readableError(error)}]);
+    setStatus(flowStatus, 'MCI impossible', 'error');
+    setMessage(flowMessage, readableError(error), 'error');
+  } finally {
+    await refreshBusinessFlowUI();
+  }
+}
+
+async function endBusinessFlowShift() {
+  const state = loadBusinessFlowState();
+  if (!(flowReady() && flowRole() === 'agent' && state?.agentUid === currentUser.uid)) return;
+  flowEndButton.disabled = true;
+  setStatus(flowStatus, 'Fin de poste', 'warning');
+  setMessage(flowMessage, 'Création du rapport de fin et clôture du shift + mission…');
+  try {
+    const token = await getIdToken(currentUser, true);
+    const {mission,shift} = await getOwnFlowMissionAndShift(token, state);
+    if (!shift || shift.status !== 'active') throw new Error('Aucun shift staging actif à terminer.');
+
+    const now = new Date().toISOString();
+    const endReportId = `${BUSINESS_FLOW_PREFIX}${state.flowId}-report-end`;
+    const {response:endReport,result:endResult} = await supabaseRequest(token, 'reports', {
+      method:'POST',
+      body:{
+        organization_id:SUPABASE.organizationId,
+        firebase_id:endReportId,
+        firebase_mission_id:state.missionFirebaseId,
+        firebase_shift_id:shift.firebase_id,
+        firebase_site_id:state.siteFirebaseId,
+        firebase_agent_uid:currentUser.uid,
+        occurred_at:now,
+        category:'Fin de service',
+        severity:'Normal',
+        message:'Fin de poste staging confirmée. Relève : RAS.',
+        payload:{
+          staging_business_flow:true,
+          staging_flow_id:state.flowId,
+          eventType:'shift_end',
+          isLocked:true
+        }
+      },
+      prefer:'return=representation'
+    });
+    if (!endReport.ok || !Array.isArray(endResult) || endResult.length !== 1) {
+      throw new Error(`Rapport fin de poste refusé (${endReport.status}) : ${JSON.stringify(endResult)}`);
+    }
+
+    const shiftPayload = {...(shift.payload || {}), staging_stage:'completed'};
+    const {response:shiftPatch,result:shiftPatched} = await supabaseRequest(token, 'shifts', {
+      method:'PATCH',
+      query:`id=eq.${encodeURIComponent(shift.id)}`,
+      body:{status:'completed',completed_at:now,payload:shiftPayload},
+      prefer:'return=representation'
+    });
+    if (!shiftPatch.ok || !Array.isArray(shiftPatched) || shiftPatched.length !== 1 || shiftPatched[0].status !== 'completed') {
+      throw new Error(`Clôture shift refusée (${shiftPatch.status}) : ${JSON.stringify(shiftPatched)}`);
+    }
+
+    const missionPayload = {...(mission.payload || {}), staging_stage:'completed'};
+    const {response:missionPatch,result:missionPatched} = await supabaseRequest(token, 'missions', {
+      method:'PATCH',
+      query:`id=eq.${encodeURIComponent(mission.id)}`,
+      body:{status:'completed',actual_end:now,payload:missionPayload},
+      prefer:'return=representation'
+    });
+    if (!missionPatch.ok || !Array.isArray(missionPatched) || missionPatched.length !== 1 || missionPatched[0].status !== 'completed') {
+      throw new Error(`Clôture mission refusée (${missionPatch.status}) : ${JSON.stringify(missionPatched)}`);
+    }
+
+    saveBusinessFlowState({...state, stage:'completed', completedAt:now});
+    renderFlowSteps([
+      {label:'Rapport fin de service',ok:true,detail:`HTTP ${endReport.status}`},
+      {label:'Shift',ok:true,detail:`HTTP ${shiftPatch.status} · completed`},
+      {label:'Mission',ok:true,detail:`HTTP ${missionPatch.status} · completed`},
+      {label:'Suite',ok:true,detail:'Déconnexion Agent → reconnexion QG → Vérifier et nettoyer'}
+    ]);
+    setStatus(flowStatus, 'Mission terminée', 'success');
+    setMessage(flowMessage, 'Parcours Agent terminé. Reconnecte maintenant le QG pour la vérification finale.', 'success');
+  } catch (error) {
+    console.error(error);
+    renderFlowSteps([{label:'Fin de poste',ok:false,detail:readableError(error)}]);
+    setStatus(flowStatus, 'Clôture impossible', 'error');
+    setMessage(flowMessage, readableError(error), 'error');
+  } finally {
+    await refreshBusinessFlowUI();
+  }
+}
+
+async function verifyAndCleanupBusinessFlow() {
+  const state = loadBusinessFlowState();
+  if (!(flowReady() && isQGRole() && state)) return;
+  flowVerifyButton.disabled = true;
+  setStatus(flowStatus, 'Vérification QG', 'warning');
+  setMessage(flowMessage, 'Contrôle de la mission, du shift et des rapports avant nettoyage…');
+
+  try {
+    const token = await getIdToken(currentUser, true);
+    const [{response:missionResponse,result:missions}, {response:shiftResponse,result:shifts}, {response:reportResponse,result:reports}] = await Promise.all([
+      supabaseRequest(token, 'missions', {
+        query:`select=id,firebase_id,status,actual_start,actual_end,payload&firebase_id=eq.${encodeURIComponent(state.missionFirebaseId)}`
+      }),
+      supabaseRequest(token, 'shifts', {
+        query:`select=id,firebase_id,status,started_at,completed_at,payload&firebase_mission_id=eq.${encodeURIComponent(state.missionFirebaseId)}`
+      }),
+      supabaseRequest(token, 'reports', {
+        query:`select=id,firebase_id,category,severity,message,occurred_at,payload&firebase_mission_id=eq.${encodeURIComponent(state.missionFirebaseId)}&order=occurred_at.asc`
+      })
+    ]);
+    if (!missionResponse.ok || !shiftResponse.ok || !reportResponse.ok) throw new Error('Lecture QG du scénario impossible.');
+    const mission = Array.isArray(missions) ? missions[0] : null;
+    const shift = Array.isArray(shifts) ? shifts[0] : null;
+    const reportRows = Array.isArray(reports) ? reports : [];
+    const categories = reportRows.map(row => row.category);
+    const checks = [
+      {label:'QG · mission visible',ok:Boolean(mission),detail:mission ? mission.status : 'absente'},
+      {label:'QG · mission terminée',ok:mission?.status === 'completed',detail:mission?.status || 'absente'},
+      {label:'QG · shift terminé',ok:shift?.status === 'completed',detail:shift?.status || 'absent'},
+      {label:'QG · prise de service',ok:categories.includes('Prise de service'),detail:categories.includes('Prise de service') ? 'présente' : 'absente'},
+      {label:'QG · MCI Incident',ok:categories.includes('Incident'),detail:categories.includes('Incident') ? 'présent' : 'absent'},
+      {label:'QG · fin de service',ok:categories.includes('Fin de service'),detail:categories.includes('Fin de service') ? 'présente' : 'absente'},
+      {label:'QG · rapports',ok:reportRows.length >= 3,detail:`${reportRows.length} rapport(s)`}
+    ];
+    renderFlowSteps(checks);
+    const complete = checks.every(check => check.ok);
+    if (!complete) {
+      setStatus(flowStatus, 'Parcours incomplet', 'error');
+      setMessage(flowMessage, 'Le scénario n’est pas complet : aucune suppression automatique n’a été effectuée.', 'error');
+      return;
+    }
+
+    const {response:cleanupResponse,result:cleanupResult} = await supabaseRequest(token, 'staging_cleanup_business_flow_v584', {
+      method:'POST',
+      body:{p_flow_id:state.flowId},
+      rpc:true
+    });
+    if (!cleanupResponse.ok || cleanupResult?.ok !== true) {
+      throw new Error(`Nettoyage RPC refusé (${cleanupResponse.status}) : ${JSON.stringify(cleanupResult)}`);
+    }
+
+    renderFlowSteps([
+      ...checks,
+      {label:'Nettoyage staging',ok:true,detail:`${cleanupResult.reports_deleted || 0} rapport(s), ${cleanupResult.shifts_deleted || 0} shift(s), ${cleanupResult.missions_deleted || 0} mission(s) supprimés`},
+      {label:'État final',ok:true,detail:'0 donnée de scénario persistante'}
+    ]);
+    clearBusinessFlowState();
+    setStatus(flowStatus, 'Parcours métier validé', 'success');
+    setMessage(flowMessage, 'Mission → prise de poste → MCI → fin de poste → lecture QG : tout est validé sur Supabase staging et les données de test ont été supprimées.', 'success');
+  } catch (error) {
+    console.error(error);
+    renderFlowSteps([{label:'Vérification / nettoyage',ok:false,detail:readableError(error)}]);
+    setStatus(flowStatus, 'Vérification impossible', 'error');
+    setMessage(flowMessage, readableError(error), 'error');
+  } finally {
+    await refreshBusinessFlowUI();
+  }
+}
+
 function refreshWriteAvailability() {
   const allowed = canRunWriteTest();
   writeCard.setAttribute('aria-disabled', allowed ? 'false' : 'true');
@@ -262,6 +837,7 @@ async function runAudit() {
   } finally {
     auditButton.disabled = !currentUser;
     refreshWriteAvailability();
+    refreshBusinessFlowUI();
   }
 }
 
@@ -479,6 +1055,11 @@ logoutButton.addEventListener('click', async () => {
 auditButton.addEventListener('click', runAudit);
 writeButton.addEventListener('click', runWriteTest);
 securityButton.addEventListener('click', runAgentSecurityTest);
+flowCreateButton.addEventListener('click', createBusinessFlowMission);
+flowStartButton.addEventListener('click', startBusinessFlowShift);
+flowMciButton.addEventListener('click', createBusinessFlowMci);
+flowEndButton.addEventListener('click', endBusinessFlowShift);
+flowVerifyButton.addEventListener('click', verifyAndCleanupBusinessFlow);
 
 onAuthStateChanged(auth, async (user) => {
   currentUser = user;
@@ -488,6 +1069,7 @@ onAuthStateChanged(auth, async (user) => {
   countsZone.classList.add('hidden');
   writeResults.classList.add('hidden');
   securityResults.classList.add('hidden');
+  flowResults.classList.add('hidden');
   setMessage(auditMessage, '');
 
   if (!user) {
@@ -500,6 +1082,7 @@ onAuthStateChanged(auth, async (user) => {
     setMessage(authMessage, '');
     refreshWriteAvailability();
     refreshSecurityAvailability();
+    refreshBusinessFlowUI();
     return;
   }
 
@@ -524,4 +1107,5 @@ onAuthStateChanged(auth, async (user) => {
   }
   refreshWriteAvailability();
   refreshSecurityAvailability();
+  refreshBusinessFlowUI();
 });
