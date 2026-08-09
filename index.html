@@ -1,227 +1,84 @@
 <!doctype html>
 <html lang="fr">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <meta name="theme-color" content="#6b3f00">
-  <meta name="robots" content="noindex,nofollow,noarchive">
-  <meta http-equiv="Cache-Control" content="no-store, max-age=0">
-  <meta http-equiv="Pragma" content="no-cache">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self'; img-src 'self' data:; connect-src 'self' https://ksoyqtsrhtsfbwmxipqz.supabase.co wss://ksoyqtsrhtsfbwmxipqz.supabase.co; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'">
-  <title>Sentinelle Pro V5.8.5 — Staging Supabase Auth natif</title>
-  <link rel="icon" href="./assets/favicon.png">
-  <link rel="stylesheet" href="./staging-style.css?v=585">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#050A13" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Sentinelle" />
+  <title>Sentinelle Pro — Portail opérationnel sécurisé</title>
+  <link rel="manifest" href="./manifest.json" />
+  <link rel="icon" href="./assets/favicon.png" />
+  <link rel="apple-touch-icon" href="./assets/icons/icon-192.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIINfQY7Wsj7dDtkZcaM5yr9ggE98u+28U8=" crossorigin="" />
+  <link rel="stylesheet" href="./style.css?v=586" />
 </head>
 <body>
-  <div class="staging-ribbon">STAGING · SUPABASE AUTH NATIF · V5.8.5</div>
-  <main class="shell">
-    <header class="hero">
-      <img src="./assets/logo.png" alt="Sentinelle Pro" class="logo">
-      <div>
-        <p class="eyebrow">Sentinelle Pro V5.8.5</p>
-        <h1>Validation Supabase Auth · connexion native</h1>
-        <p class="subtitle">Portail isolé de staging. La connexion, la session, les rôles et les RLS passent maintenant directement par Supabase Auth.</p>
-      </div>
-    </header>
+  <div class="staging-v586-banner">STAGING · V5.8.6 · SUPABASE AUTH + CORE · PUSH DÉSACTIVÉ</div>
+  <script>window.__SENTINELLE_SUPABASE_CORE__ = true;</script>
+  <div id="app" class="app-loading">
+    <div class="boot-card">
+      <img src="assets/logo.png" alt="Sentinelle Pro" class="boot-logo" />
+      <div class="boot-title">Sentinelle Pro</div>
+      <div class="boot-subtitle">Portail opérationnel sécurisé</div>
+      <div class="loader-line"><span></span></div>
+    </div>
+  </div>
 
-    <section class="safety-card" aria-label="Garanties de sécurité">
-      <strong>Supabase Auth natif · environnement isolé</strong>
-      <div class="safety-grid">
-        <span>✓ Connexion email / mot de passe : Supabase Auth</span>
-        <span>✓ JWT Supabase natif utilisé directement par les RLS</span>
-        <span>✓ Profil métier relié via <code>profiles.auth_user_id</code></span>
-        <span>✓ Aucun SDK Firebase chargé sur cette page</span>
-        <span>✓ Tests d’écriture limités au staging et auto-nettoyants</span>
-        <span>✓ Aucun Service Worker ni OneSignal</span>
-      </div>
-    </section>
+  <div id="toast-root" class="toast-root"></div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 
-    <section id="auth-card" class="card">
-      <div class="card-head">
-        <div>
-          <p class="kicker">Étape 1</p>
-          <h2>Connexion au compte de test</h2>
-        </div>
-        <span id="auth-status" class="status neutral">Non connecté</span>
-      </div>
-
-      <form id="login-form" class="form-grid" autocomplete="on">
-        <label>
-          <span>Adresse e-mail Supabase Auth</span>
-          <input id="email" name="email" type="email" autocomplete="email" required>
-        </label>
-        <label>
-          <span>Mot de passe</span>
-          <input id="password" name="password" type="password" autocomplete="current-password" required>
-        </label>
-        <button id="login-button" type="submit" class="primary">Se connecter avec Supabase</button>
-      </form>
-
-      <div id="session-panel" class="session-panel hidden">
-        <div>
-          <span class="label">Compte Supabase Auth</span>
-          <strong id="session-account">Compte connecté</strong>
-        </div>
-        <button id="logout-button" type="button" class="secondary">Déconnexion</button>
-      </div>
-      <p id="auth-message" class="message" aria-live="polite"></p>
-    </section>
-
-    <section id="audit-card" class="card muted-card" aria-disabled="true">
-      <div class="card-head">
-        <div>
-          <p class="kicker">Étape 2</p>
-          <h2>Contrôle de la copie Supabase</h2>
-        </div>
-        <span id="audit-status" class="status neutral">En attente</span>
-      </div>
-
-      <p class="explanation">
-        Le contrôle vérifie l’utilisateur directement auprès de Supabase Auth, contrôle le JWT <code>role=authenticated</code>,
-        retrouve le profil via <code>auth_user_id</code> puis compte les lignes visibles selon les règles RLS.
-      </p>
-
-      <button id="audit-button" type="button" class="primary" disabled>Lancer le contrôle en lecture seule</button>
-      <p id="audit-message" class="message" aria-live="polite"></p>
-
-      <div id="summary" class="summary-grid hidden"></div>
-
-      <div id="counts-zone" class="counts-zone hidden">
-        <div class="section-title">
-          <h3>Comptages visibles dans Supabase</h3>
-          <span>Référence : import du 4 août 2026</span>
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Table</th>
-                <th>Visible</th>
-                <th>Import</th>
-                <th>État</th>
-              </tr>
-            </thead>
-            <tbody id="counts-body"></tbody>
-          </table>
-        </div>
-        <p class="footnote">Une valeur différente peut signaler une évolution des données ou un filtrage normal par les règles RLS. Aucun contenu métier n’est affiché.</p>
-      </div>
-    </section>
-
-    <section id="write-card" class="card muted-card" aria-disabled="true">
-      <div class="card-head">
-        <div>
-          <p class="kicker">Étape 3</p>
-          <h2>Test d’écriture Supabase</h2>
-        </div>
-        <span id="write-status" class="status neutral">En attente</span>
-      </div>
-
-      <p class="explanation">
-        Réservé au QG <code>admin</code> ou <code>superviseur</code>. Le test crée un profil agent temporaire dans
-        <code>profiles</code>, le relit, le modifie, vérifie la modification puis le supprime. Il ne crée aucun autre compte Supabase Auth.
-      </p>
-
-      <div class="write-warning">
-        <strong>Test auto-nettoyant</strong>
-        <span>Si toutes les étapes réussissent, le nombre de profils revient automatiquement à sa valeur initiale.</span>
-      </div>
-
-      <button id="write-button" type="button" class="danger-safe" disabled>Lancer le test POST → PATCH → DELETE</button>
-      <p id="write-message" class="message" aria-live="polite"></p>
-      <div id="write-results" class="write-results hidden"></div>
-    </section>
-
-
-
-    <section id="security-card" class="card muted-card" aria-disabled="true">
-      <div class="card-head">
-        <div>
-          <p class="kicker">Étape 4</p>
-          <h2>Test de sécurité RLS Agent</h2>
-        </div>
-        <span id="security-status" class="status neutral">En attente</span>
-      </div>
-
-      <p class="explanation">
-        Réservé au compte <code>agent</code>. La sonde vérifie directement dans Supabase que l’agent ne peut pas créer
-        de profil, modifier un site, créer une mission ou modifier un rapport existant, tout en conservant les écritures
-        nécessaires sur sa propre mission, son shift et son rapport. Toutes les écritures de sonde sont annulées automatiquement.
-      </p>
-
-      <div class="write-warning">
-        <strong>Sonde sans donnée persistante</strong>
-        <span>Le SQL de durcissement doit être exécuté dans Supabase avant de lancer ce test.</span>
-      </div>
-
-      <button id="security-button" type="button" class="danger-safe" disabled>Lancer le test sécurité Agent</button>
-      <p id="security-message" class="message" aria-live="polite"></p>
-      <div id="security-results" class="write-results hidden"></div>
-    </section>
-
-
-    <section id="flow-card" class="card muted-card" aria-disabled="true">
-      <div class="card-head">
-        <div>
-          <p class="kicker">Étape 5</p>
-          <h2>Scénario métier Supabase de bout en bout</h2>
-        </div>
-        <span id="flow-status" class="status neutral">En attente</span>
-      </div>
-
-      <p class="explanation">
-        Ce scénario utilise uniquement <strong>Supabase staging</strong>. Le QG crée une mission temporaire,
-        l’agent la démarre, crée un MCI et termine son poste, puis le QG vérifie le résultat et nettoie automatiquement
-        toutes les données de test.
-      </p>
-
-      <div class="write-warning">
-        <strong>Ordre du scénario</strong>
-        <span>QG : créer mission → Agent : démarrer → MCI → terminer → QG : vérifier et nettoyer.</span>
-      </div>
-
-      <div id="flow-qg-panel" class="hidden">
-        <div class="form-grid">
-          <label class="field">
-            <span>Agent de test</span>
-            <select id="flow-agent-select" class="select"><option value="">Choisir un agent</option></select>
-          </label>
-          <label class="field">
-            <span>Site de test</span>
-            <select id="flow-site-select" class="select"><option value="">Choisir un site</option></select>
-          </label>
-        </div>
-        <div class="btn-row">
-          <button id="flow-create-button" type="button" class="danger-safe" disabled>1 · Créer la mission staging</button>
-          <button id="flow-verify-button" type="button" class="primary" disabled>5 · Vérifier et nettoyer</button>
-        </div>
-      </div>
-
-      <div id="flow-agent-panel" class="hidden">
-        <div class="btn-row">
-          <button id="flow-start-button" type="button" class="danger-safe" disabled>2 · Démarrer la mission</button>
-          <button id="flow-mci-button" type="button" class="danger-safe" disabled>3 · Créer le MCI test</button>
-          <button id="flow-end-button" type="button" class="danger-safe" disabled>4 · Terminer la mission</button>
-        </div>
-      </div>
-
-      <p id="flow-message" class="message" aria-live="polite"></p>
-      <div id="flow-results" class="write-results hidden"></div>
-    </section>
-
-    <section class="card technical-card">
-      <h2>Environnement contrôlé</h2>
-      <dl>
-        <div><dt>Authentification</dt><dd>Supabase Auth natif</dd></div>
-        <div><dt>Backend</dt><dd>sentinelle-pro-staging</dd></div>
-        <div><dt>Projet Supabase</dt><dd>ksoyqtsrhtsfbwmxipqz</dd></div>
-        <div><dt>Firebase</dt><dd>non chargé sur ce portail V5.8.5</dd></div>
-        <div><dt>Organisation migrée</dt><dd>43b09366-de36-5b44-97cc-d549eb0d4e53</dd></div>
-      </dl>
-    </section>
-  </main>
-
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script type="module" src="./staging-app.js?v=585"></script>
+  <script>
+    // V5.4.9 : aucun minuteur de blocage. L'ancien écran "Démarrage trop long"
+    // pouvait s'afficher même quand l'application était déjà chargée.
+    (() => {
+      const app = document.getElementById('app');
+      const showStartupError = (title, detail) => {
+        if (!app || window.__SENTINELLE_RENDERED__) return;
+        app.className = '';
+        app.innerHTML = `
+          <div class="login-page">
+            <section class="login-card">
+              <img src="./assets/logo.png" class="login-logo" alt="Sentinelle Pro">
+              <h1>${String(title || 'Module indisponible')}</h1>
+              <p class="subtitle">Le portail n'a pas pu démarrer.</p>
+              <div class="setup-box danger-copy" style="word-break:break-word">${String(detail || 'Erreur inconnue')}</div>
+              <button class="btn primary full" id="hard-reload-btn" type="button">Nettoyer le cache et relancer</button>
+            </section>
+          </div>`;
+        document.getElementById('hard-reload-btn')?.addEventListener('click', async () => {
+          try {
+            if ('serviceWorker' in navigator) {
+              const regs = await navigator.serviceWorker.getRegistrations();
+              await Promise.all(regs.filter(reg => !String(reg.active?.scriptURL || '').includes('/push/onesignal/')).map(reg => reg.unregister().catch(() => false)));
+            }
+            if ('caches' in window) {
+              const keys = await caches.keys();
+              await Promise.all(keys.filter(key => key.startsWith('sentinelle-pro-') || key.startsWith('sentinelle-cdn-')).map(key => caches.delete(key)));
+            }
+          } catch (_) {}
+          location.replace(`${location.pathname}?fresh=586-${Date.now()}`);
+        });
+      };
+      window.__sentinelleShowStartupError = showStartupError;
+      window.addEventListener('error', event => {
+        if (!window.__SENTINELLE_RENDERED__) showStartupError('Erreur JavaScript', event.message || event.error?.message);
+      });
+      window.addEventListener('unhandledrejection', event => {
+        if (!window.__SENTINELLE_RENDERED__) showStartupError('Erreur de démarrage', event.reason?.message || event.reason);
+      });
+    })();
+  </script>
+  <script type="module">
+    import('./app.js?v=586').catch(error => {
+      console.error(error);
+      window.__sentinelleShowStartupError?.('Module principal indisponible', error?.message || error);
+    });
+  </script>
 </body>
 </html>
