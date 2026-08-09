@@ -1,12 +1,12 @@
-const CACHE_NAME = 'sentinelle-pro-staging-v5-8-8-1-web-push';
-const CDN_CACHE_NAME = 'sentinelle-staging-cdn-v5-8-8-1';
+const CACHE_NAME = 'sentinelle-pro-staging-v5-8-8-2-web-push';
+const CDN_CACHE_NAME = 'sentinelle-staging-cdn-v5-8-8-2';
 const APP_SHELL = [
   './',
   './index.html',
-  './style.css?v=5881',
-  './app.js?v=5881',
+  './style.css?v=5882',
+  './app.js?v=5882',
   './sentinelle-config.js',
-  './supabase-compat.js?v=5881',
+  './supabase-compat.js?v=5882',
   './supabase-config.js',
   './supabase-bridge.js',
   './manifest.json',
@@ -26,9 +26,16 @@ const TRUSTED_OFFLINE_CDN = new Set([
 ]);
 
 self.addEventListener('install', event => {
-  event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(APP_SHELL)));
-  // Ne pas appeler skipWaiting ici : une mission en cours ne doit jamais être
-  // interrompue par l'activation forcée d'une nouvelle version.
+  // V5.8.8.2 : un asset secondaire manquant ne doit plus faire échouer
+  // l'installation complète du Service Worker sur iOS/GitHub Pages.
+  event.waitUntil((async()=>{
+    const cache = await caches.open(CACHE_NAME);
+    for (const asset of APP_SHELL) {
+      try { await cache.add(asset); }
+      catch (error) { console.warn('[Sentinelle SW] cache ignoré', asset, error); }
+    }
+  })());
+  // Pas de skipWaiting forcé : on évite de couper une mission déjà ouverte.
 });
 
 self.addEventListener('message', event => {

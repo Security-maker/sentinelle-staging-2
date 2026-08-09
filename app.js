@@ -5,7 +5,7 @@ import {
   createUserWithEmailAndPassword, signOut, onAuthStateChanged, initializeFirestore, persistentLocalCache,
   persistentMultipleTabManager, collection, doc, getDoc, getDocs, addDoc, setDoc, updateDoc, query, where,
   orderBy, limit, onSnapshot, serverTimestamp, Timestamp, runTransaction, deleteDoc, writeBatch, supabaseRuntimeConfigured, getSupabaseClient
-} from './supabase-compat.js?v=5881';
+} from './supabase-compat.js?v=5882';
 
 const $app = document.querySelector('#app');
 const $toast = document.querySelector('#toast-root');
@@ -335,16 +335,10 @@ function sosButton(){
 
 function boot(){
   if ('serviceWorker' in navigator) {
-    // Nettoie l'ancien Worker OneSignal enregistré à la racine : il entre en conflit avec le Worker PWA.
-    navigator.serviceWorker.getRegistrations().then(registrations => {
-      registrations.forEach(registration => {
-        const scriptUrl = registration.active?.scriptURL || registration.waiting?.scriptURL || registration.installing?.scriptURL || '';
-        if (/\/(OneSignalSDKWorker|OneSignalSDKUpdaterWorker)\.js(?:\?|$)/.test(scriptUrl) && !scriptUrl.includes('/push/onesignal/')) {
-          registration.unregister().catch(() => {});
-        }
-      });
-    }).catch(() => {}).finally(() => {
-      navigator.serviceWorker.register('./service-worker.js').catch(() => {});
+    // V5.8.8.2 : enregistre explicitement le Worker Sentinelle et garde l'erreur pour le diagnostic.
+    ensureSentinelleServiceWorker({ cleanupLegacy:true, timeoutMs:8000 }).catch(error => {
+      window.__SENTINELLE_SW_LAST_ERROR__ = error?.message || String(error || 'Service Worker indisponible');
+      console.warn('Service Worker Sentinelle non prêt', error);
     });
   }
   window.addEventListener('online', () => {
@@ -354,7 +348,7 @@ function boot(){
     }
     retryPendingSupabaseDeliveries().catch(error => console.warn('Relance Supabase impossible', error));
   });
-  window.addEventListener('offline', () => toast('Mode hors ligne V5.8.8.1 — les écritures Supabase sont suspendues jusqu’au retour du réseau', 'warning'));
+  window.addEventListener('offline', () => toast('Mode hors ligne V5.8.8.2 — les écritures Supabase sont suspendues jusqu’au retour du réseau', 'warning'));
 
   if (!isConfigured()) return renderSetupMissing();
   try {
@@ -4454,7 +4448,7 @@ function exportReportHtml(rows, filename, innerOnly=false){
 
 
 
-// -------------------- V5.8.8.1 — WEB PUSH NATIF SUPABASE --------------------
+// -------------------- V5.8.8.2 — WEB PUSH NATIF SUPABASE --------------------
 const SP_PUSH_PREF_DEFAULTS = Object.freeze({ flash:true, planning:true, instructions:true, documents:true, operations:true });
 
 function spLoadPushPreferences(){
@@ -4487,6 +4481,37 @@ function isIosLike(){
 function isStandalonePwa(){
   return window.matchMedia?.('(display-mode: standalone)')?.matches || window.navigator.standalone === true;
 }
+async function ensureSentinelleServiceWorker({cleanupLegacy=false, timeoutMs=8000}={}){
+  if (!('serviceWorker' in navigator)) throw new Error('Service Worker non supporté par ce navigateur.');
+  if (cleanupLegacy) {
+    const registrations = await navigator.serviceWorker.getRegistrations().catch(()=>[]);
+    await Promise.all((registrations||[]).map(async registration => {
+      const scriptUrl = registration.active?.scriptURL || registration.waiting?.scriptURL || registration.installing?.scriptURL || '';
+      if (/\/(OneSignalSDKWorker|OneSignalSDKUpdaterWorker)\.js(?:\?|$)/.test(scriptUrl) && !scriptUrl.includes('/push/onesignal/')) {
+        await registration.unregister().catch(()=>false);
+      }
+    }));
+  }
+  let registration = await navigator.serviceWorker.getRegistration('./').catch(()=>null);
+  const existingUrl = registration?.active?.scriptURL || registration?.waiting?.scriptURL || registration?.installing?.scriptURL || '';
+  if (!registration || !/service-worker\.js/i.test(existingUrl)) {
+    try {
+      registration = await navigator.serviceWorker.register('./service-worker.js?v=5882', { scope:'./', updateViaCache:'none' });
+      window.__SENTINELLE_SW_LAST_ERROR__ = '';
+    } catch(error) {
+      window.__SENTINELLE_SW_LAST_ERROR__ = error?.message || String(error || 'Échec enregistrement Service Worker');
+      throw error;
+    }
+  } else {
+    registration.update?.().catch(()=>{});
+  }
+  const ready = await Promise.race([
+    navigator.serviceWorker.ready.catch(()=>null),
+    new Promise(resolve=>setTimeout(()=>resolve(null), Math.max(1500, Number(timeoutMs||8000))))
+  ]);
+  return ready || registration;
+}
+
 function nativeWebPushSupported(){
   return Boolean('serviceWorker' in navigator && 'PushManager' in window && typeof Notification !== 'undefined');
 }
@@ -4507,22 +4532,38 @@ async function spNativePushRequest(body, options={}){
   if (!currentUser) return { ok:false, skipped:true, reason:'Utilisateur non connecté' };
   if (!webPushFunctionConfigured()) return { ok:false, skipped:true, reason:'Edge Function Web Push non configurée' };
   const timeoutMs = Math.max(3000, Number(options?.timeoutMs || 20000));
-  const token = await currentUser.getIdToken(false);
+  const supabase = getSupabaseClient();
+  const sessionResult = await supabase.auth.getSession();
+  const token = sessionResult?.data?.session?.access_token || await currentUser.getIdToken(false);
   if (!token) throw new Error('Session Supabase absente ou expirée.');
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
+    // V5.8.8.2 : la passerelle Supabase attend le JWT utilisateur dans Authorization
+    // et la clé publique du projet dans apikey pour un appel navigateur fiable.
     const response = await fetch(pushConfig.pushFunctionUrl, {
       method:'POST',
-      headers:{ 'Content-Type':'application/json', 'Authorization':`Bearer ${token}` },
+      headers:{
+        'Content-Type':'application/json',
+        'Accept':'application/json',
+        'Authorization':`Bearer ${token}`,
+        'apikey':stagingConfig.supabasePublishableKey,
+        'x-client-info':'sentinelle-pro-web-push/5.8.8.2'
+      },
       body:JSON.stringify(body || {}),
-      signal:controller.signal
+      signal:controller.signal,
+      cache:'no-store'
     });
-    const result = await response.json().catch(()=>({}));
+    const text = await response.text().catch(()=> '');
+    let result={};
+    try { result = text ? JSON.parse(text) : {}; } catch { result = { message:text }; }
     if (!response.ok || result?.ok === false) throw new Error(result?.error || result?.message || `Web Push HTTP ${response.status}`);
     return result;
   } catch(error) {
-    if (error?.name === 'AbortError') throw new Error(`Edge Function injoignable après ${Math.round(timeoutMs/1000)} s.`);
+    if (error?.name === 'AbortError') throw new Error(`Edge Function sans réponse après ${Math.round(timeoutMs/1000)} s.`);
+    if (/Load failed|Failed to fetch|NetworkError/i.test(String(error?.message||error))) {
+      throw new Error('Edge Function inaccessible depuis l’app. Vérifie son déploiement et ses logs Supabase.');
+    }
     throw error;
   } finally {
     clearTimeout(timer);
@@ -4540,23 +4581,24 @@ async function spGetVapidPublicKey(){
 }
 
 async function nativePushState(options={}){
-  if (!('serviceWorker' in navigator)) return {worker:'',workerState:'absent',nativeSubscribed:false,endpoint:''};
+  if (!('serviceWorker' in navigator)) return {worker:'',workerState:'absent',nativeSubscribed:false,endpoint:'',registrationError:'non supporté'};
   const timeoutMs = Math.max(1500, Number(options?.timeoutMs || 5000));
-  let registration = await navigator.serviceWorker.getRegistration().catch(()=>null);
-  if (!registration) {
-    registration = await Promise.race([
-      navigator.serviceWorker.ready.catch(()=>null),
-      new Promise(resolve => setTimeout(()=>resolve(null), timeoutMs))
-    ]);
+  let registration = null;
+  let registrationError = '';
+  try {
+    registration = await ensureSentinelleServiceWorker({cleanupLegacy:false, timeoutMs});
+  } catch(error) {
+    registrationError = error?.message || String(error || 'échec enregistrement');
   }
-  if (!registration) return {scope:new URL('./',location.href).href,worker:'',workerState:'non prêt / délai dépassé',nativeSubscribed:false,endpoint:''};
+  if (!registration) return {scope:new URL('./',location.href).href,worker:'',workerState:'non prêt / délai dépassé',nativeSubscribed:false,endpoint:'',registrationError:registrationError||window.__SENTINELLE_SW_LAST_ERROR__||''};
   const subscription = registration?.pushManager ? await registration.pushManager.getSubscription().catch(()=>null) : null;
   return {
     scope:registration?.scope || new URL('./',location.href).href,
     worker:registration?.active?.scriptURL || registration?.waiting?.scriptURL || registration?.installing?.scriptURL || '',
-    workerState:registration?.active?.state || registration?.waiting?.state || registration?.installing?.state || 'absent',
+    workerState:registration?.active?.state || registration?.waiting?.state || registration?.installing?.state || 'enregistré',
     nativeSubscribed:Boolean(subscription),
-    endpoint:subscription?.endpoint || ''
+    endpoint:subscription?.endpoint || '',
+    registrationError:registrationError||window.__SENTINELLE_SW_LAST_ERROR__||''
   };
 }
 
@@ -4624,7 +4666,8 @@ async function registerPushNotifications(){
       throw new Error('Permission de notification non accordée.');
     }
     if (button) button.textContent='Création de l’abonnement sécurisé…';
-    const registration = await navigator.serviceWorker.ready;
+    const registration = await ensureSentinelleServiceWorker({cleanupLegacy:true, timeoutMs:10000});
+    if (!registration?.pushManager) throw new Error('Service Worker Sentinelle non prêt pour le Web Push.');
     const publicKey = await spGetVapidPublicKey();
     let subscription = await registration.pushManager.getSubscription();
     // V5.8.8 : on force un abonnement lié à NOS clés VAPID, et non à un ancien fournisseur.
@@ -4668,7 +4711,7 @@ async function diagnosePushSetup(triggerButton=null){
     const native = nativeResult.status==='fulfilled'
       ? nativeResult.value
       : {worker:'',workerState:`Erreur : ${nativeResult.reason?.message||nativeResult.reason||'inconnue'}`,nativeSubscribed:false,endpoint:''};
-    const html = `<div class="setup-box"><strong>Edge Function</strong><br>${safe(edge)}</div><div class="setup-box" style="margin-top:12px"><strong>Base Supabase</strong><br>${safe(db)}</div><div class="setup-box" style="margin-top:12px"><strong>Appareil</strong><br>Permission : ${safe(typeof Notification!=='undefined'?Notification.permission:'indisponible')}<br>Service Worker : ${safe(native.worker||'absent')}<br>État : ${safe(native.workerState)}<br>Abonnement natif : ${native.nativeSubscribed?'oui':'non'}</div>`;
+    const html = `<div class="setup-box"><strong>Edge Function</strong><br>${safe(edge)}</div><div class="setup-box" style="margin-top:12px"><strong>Base Supabase</strong><br>${safe(db)}</div><div class="setup-box" style="margin-top:12px"><strong>Appareil</strong><br>Permission : ${safe(typeof Notification!=='undefined'?Notification.permission:'indisponible')}<br>Service Worker : ${safe(native.worker||'absent')}<br>État : ${safe(native.workerState)}${native.registrationError?`<br>Erreur SW : ${safe(native.registrationError)}`:''}<br>Abonnement natif : ${native.nativeSubscribed?'oui':'non'}</div>`;
     const resultBox=document.querySelector('#web-push-diagnostic-result');
     if(resultBox) resultBox.innerHTML=html; else showModal('Diagnostic Web Push', html);
   } catch(error) {
@@ -4757,7 +4800,7 @@ function renderPushSetup(){
         <button class="btn full" id="push-test-local" type="button">Tester une notification locale</button>
       </div>
       <div class="card"><div class="card-title"><div><h2>Diagnostic</h2><p>Supabase Auth → Edge Function → Web Push.</p></div></div>
-        <div class="setup-box">V5.8.8.1 : aucun OneSignal et aucun Worker Cloudflare n’est nécessaire. Le Service Worker PWA reçoit directement le Web Push.</div>
+        <div class="setup-box">V5.8.8.2 : aucun OneSignal et aucun Worker Cloudflare n’est nécessaire. Le Service Worker PWA reçoit directement le Web Push.</div>
         <div class="list"><div class="item"><div class="item-main"><div class="item-title">Compte connecté</div><div class="item-meta">${safe(currentProfile?.prenom||'')} ${safe(currentProfile?.nom||'')} · ${safe(currentProfile?.role||'')}</div></div></div><div class="item"><div class="item-main"><div class="item-title">Edge Function</div><div class="item-meta">${safe(pushConfig?.pushFunctionUrl||'Non configurée')}</div></div></div></div>
         <button class="btn full" id="push-diagnose-main" data-action="diagnose-web-push" type="button">Diagnostic Web Push</button><button class="btn ghost full" id="push-refresh-main" type="button">Rafraîchir l’état</button>
       </div>
@@ -4775,7 +4818,7 @@ function renderPushSetup(){
   document.querySelector('#push-activate-main')?.addEventListener('click',registerPushNotifications);
   document.querySelector('#push-save-preferences')?.addEventListener('click',async()=>{const preferences={...SP_PUSH_PREF_DEFAULTS};document.querySelectorAll('[data-push-pref]').forEach(input=>{preferences[input.dataset.pushPref]=Boolean(input.checked)});await spSavePushPreferences(preferences);toast('Préférences de notifications enregistrées.','success');});
   document.querySelector('#push-refresh-main')?.addEventListener('click',()=>renderPushSetup());
-  document.querySelector('#push-test-local')?.addEventListener('click',async()=>{try{if(typeof Notification==='undefined')return toast('Notifications indisponibles sur ce navigateur.','warning');if(Notification.permission!=='granted')return toast('Autorisation non accordée sur cet appareil.','warning');const reg=await navigator.serviceWorker.ready;await reg.showNotification('Sentinelle Pro',{body:'Notification locale de test. Le Service Worker est opérationnel.',tag:'sentinelle-local-test',icon:'./assets/icons/icon-192.png',badge:'./assets/icons/icon-192.png'});toast('Notification locale envoyée.','success')}catch(error){toast(userFriendlyError(error,'Test notification impossible.'),'error')}});
+  document.querySelector('#push-test-local')?.addEventListener('click',async()=>{try{if(typeof Notification==='undefined')return toast('Notifications indisponibles sur ce navigateur.','warning');if(Notification.permission!=='granted')return toast('Autorisation non accordée sur cet appareil.','warning');const reg=await ensureSentinelleServiceWorker({timeoutMs:8000});await reg.showNotification('Sentinelle Pro',{body:'Notification locale de test. Le Service Worker est opérationnel.',tag:'sentinelle-local-test',icon:'./assets/icons/icon-192.png',badge:'./assets/icons/icon-192.png'});toast('Notification locale envoyée.','success')}catch(error){toast(userFriendlyError(error,'Test notification impossible.'),'error')}});
 }
 
 async function sendPushForFlash(flash){
