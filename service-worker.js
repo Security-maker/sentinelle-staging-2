@@ -1,12 +1,12 @@
-const CACHE_NAME = 'sentinelle-pro-staging-v5-8-7-1-photo-mci';
-const CDN_CACHE_NAME = 'sentinelle-staging-cdn-v5-8-7-1';
+const CACHE_NAME = 'sentinelle-pro-staging-v5-8-8-web-push';
+const CDN_CACHE_NAME = 'sentinelle-staging-cdn-v5-8-8';
 const APP_SHELL = [
   './',
   './index.html',
-  './style.css?v=5871',
-  './app.js?v=5871',
+  './style.css?v=588',
+  './app.js?v=588',
   './sentinelle-config.js',
-  './supabase-compat.js?v=5871',
+  './supabase-compat.js?v=588',
   './supabase-config.js',
   './supabase-bridge.js',
   './manifest.json',
@@ -68,11 +68,49 @@ async function staleWhileRevalidate(request){
   return cached || await network || Response.error();
 }
 
+self.addEventListener('push', event => {
+  let payload = {};
+  try { payload = event.data ? event.data.json() : {}; }
+  catch (_) { payload = { body:event.data?.text?.() || 'Nouvelle information Sentinelle Pro' }; }
+  const title = String(payload.title || 'Sentinelle Pro');
+  const options = {
+    body:String(payload.body || payload.message || 'Nouvelle information opérationnelle'),
+    icon:payload.icon || './assets/icons/icon-192.png',
+    badge:payload.badge || './assets/icons/icon-192.png',
+    tag:String(payload.tag || payload.notificationId || `sentinelle-${Date.now()}`),
+    renotify:Boolean(payload.renotify),
+    requireInteraction:Boolean(payload.requireInteraction),
+    data:{ url:payload.url || './index.html', route:payload.route || 'home', ...(payload.data || {}) }
+  };
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  const notificationData = event.notification?.data || {};
+  const fallback = `./index.html?route=${encodeURIComponent(notificationData.route || 'home')}`;
+  const targetUrl = new URL(notificationData.url || fallback, self.location.origin).href;
+  event.waitUntil((async () => {
+    const clientsList = await self.clients.matchAll({ type:'window', includeUncontrolled:true });
+    for (const client of clientsList) {
+      try {
+        const current = new URL(client.url);
+        const target = new URL(targetUrl);
+        if (current.origin === target.origin) {
+          await client.focus();
+          if ('navigate' in client) await client.navigate(targetUrl).catch(()=>{});
+          return;
+        }
+      } catch (_) {}
+    }
+    if (self.clients.openWindow) await self.clients.openWindow(targetUrl);
+  })());
+});
+
 self.addEventListener('fetch', event => {
   const request = event.request;
   if (request.method !== 'GET') return;
   const url = new URL(request.url);
-  if (url.pathname.endsWith('/push/onesignal/OneSignalSDKWorker.js') || url.hostname === 'cdn.onesignal.com') return;
   if (TRUSTED_OFFLINE_CDN.has(url.hostname)) {
     event.respondWith(staleWhileRevalidate(request));
     return;
