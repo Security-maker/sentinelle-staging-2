@@ -5,7 +5,7 @@ import {
   createUserWithEmailAndPassword, signOut, onAuthStateChanged, initializeFirestore, persistentLocalCache,
   persistentMultipleTabManager, collection, doc, getDoc, getDocs, addDoc, setDoc, updateDoc, query, where,
   orderBy, limit, onSnapshot, serverTimestamp, Timestamp, runTransaction, deleteDoc, writeBatch, supabaseRuntimeConfigured, getSupabaseClient
-} from './supabase-compat.js?v=5883';
+} from './supabase-compat.js?v=5885';
 
 const $app = document.querySelector('#app');
 const $toast = document.querySelector('#toast-root');
@@ -34,6 +34,7 @@ let sosCountdownTimer = null;
 let sosArming = false;
 let sosTriggered = false;
 let activeShiftCache = null;
+const endShiftSubmissionLocks = new Set();
 let lastSitesCache = [];
 let qgReportMissionGroups = [];
 let qgNotificationsCache = [];
@@ -335,7 +336,7 @@ function sosButton(){
 
 function boot(){
   if ('serviceWorker' in navigator) {
-    // V5.8.8.3 : enregistre explicitement le Worker Sentinelle et garde l'erreur pour le diagnostic.
+    // V5.8.8.5 : enregistre explicitement le Worker Sentinelle et garde l'erreur pour le diagnostic.
     ensureSentinelleServiceWorker({ cleanupLegacy:true, timeoutMs:8000 }).catch(error => {
       window.__SENTINELLE_SW_LAST_ERROR__ = error?.message || String(error || 'Service Worker indisponible');
       console.warn('Service Worker Sentinelle non prêt', error);
@@ -348,7 +349,7 @@ function boot(){
     }
     retryPendingSupabaseDeliveries().catch(error => console.warn('Relance Supabase impossible', error));
   });
-  window.addEventListener('offline', () => toast('Mode hors ligne V5.8.8.3 — les écritures Supabase sont suspendues jusqu’au retour du réseau', 'warning'));
+  window.addEventListener('offline', () => toast('Mode hors ligne V5.8.8.5 — les écritures Supabase sont suspendues jusqu’au retour du réseau', 'warning'));
 
   if (!isConfigured()) return renderSetupMissing();
   try {
@@ -945,7 +946,10 @@ function dateOnlyKey(value){ const d=timestampToDate(value); return d?`${d.getFu
 
 async function renderAgentHome(){
   currentRoute = 'home';
-  const shift = await findActiveShift().catch(() => activeShiftCache || null);
+  const shift = await findActiveShift().catch(error => {
+    console.warn('Lecture du poste actif impossible', error);
+    return navigator.onLine ? null : (activeShiftCache || null);
+  });
   activeShiftCache = shift;
   const isWorking = !!shift;
   const body = `
@@ -1141,7 +1145,7 @@ async function takeShift(site, mission=null, checkInPhoto=null){
       checkInPhotoAvailable:true, checkInPhotoCapturedAt:checkInPhoto.capturedAt, checkInPhotoBytes:checkInPhoto.bytes,
       createdAt: serverTimestamp(), createdBy: currentUser.uid
     });
-    // V5.8.8.3 : la preuve de prise de poste est stockée dans le rapport automatique
+    // V5.8.8.5 : la preuve de prise de poste est stockée dans le rapport automatique
     // de prise de service. Le chemin reports -> Supabase Storage est le même que pour
     // les photos MCI déjà validées et évite le point de panne compat shiftProofs.
     let startReportDoc = null;
@@ -1173,9 +1177,10 @@ async function takeShift(site, mission=null, checkInPhoto=null){
     currentProfile = { ...currentProfile, statut:'en_poste', siteActuel:site.id, siteActuelNom:site.name };
     syncNativePushIdentity().catch(() => {});
     await addAudit('shift_start', { shiftId: shiftDoc.id, siteId: site.id, missionId: mission?.id || null, photoProof:true, gpsAvailable:!!gps });
-    spNotifyQGShiftStarted({shiftId:shiftDoc.id,siteName:site.name,startedAt:new Date()}).then(result=>addAudit('qg_shift_start_notification',{shiftId:shiftDoc.id,pushStatus:result?.skipped?(result?.reason||'skipped'):result?.ok?'sent':result?.error||'failed'}).catch(()=>{})).catch(()=>{});
-    toast('Prise de poste confirmée', 'success');
-    renderAgentHome();
+    const startPushResult = await spNotifyQGShiftStarted({shiftId:shiftDoc.id,siteName:site.name,startedAt:new Date()});
+    await addAudit('qg_shift_start_notification',{shiftId:shiftDoc.id,pushStatus:startPushResult?.skipped?(startPushResult?.reason||'skipped'):startPushResult?.ok?'sent':startPushResult?.error||'failed'}).catch(()=>{});
+    toast(startPushResult?.ok ? 'Prise de poste confirmée · QG notifié' : 'Prise de poste confirmée', 'success');
+    await renderAgentHome();
   } catch(error){
     console.error(error);
     toast(error.message || 'Erreur prise de poste. Vérifie les RLS Supabase.', 'error');
@@ -1223,42 +1228,98 @@ async function endShift(shift){
     endShiftModalRoot?.querySelector('.modal')?.classList.add('end-shift-modal');
     document.querySelector('#end-shift-form')?.addEventListener('submit', async e => {
       e.preventDefault();
+      const shiftKey = String(shift?.id || '');
+      if (!shiftKey) return toast('Mission introuvable.', 'error');
+      if (endShiftSubmissionLocks.has(shiftKey)) return;
+
       const form = e.currentTarget;
       const button = form.querySelector('button[type="submit"]');
-      button.disabled = true;
-      button.textContent = 'Clôture en cours...';
-      const fd = new FormData(form);
-      const endGps = await getGPS({ enableHighAccuracy:true, timeout:10000, maximumAge:0 });
-      let finalReportsCount = reportsSnap.size;
+      const originalButtonText = button?.textContent || 'Confirmer la fin de poste';
+      endShiftSubmissionLocks.add(shiftKey);
+      if (button) { button.disabled = true; button.textContent = 'Clôture en cours...'; }
+
       try {
-        await addDoc(collectionRef('reports'), {
-          agentId:currentUser.uid, agentNom:agentName, siteId:shift.siteId, siteNom:shift.siteNom, shiftId:shift.id, missionId:shift.missionId || null,
-          category:'Fin de service', severity:'Normal', message:`Fin de poste confirmée. Relève : ${fd.get('handoverNote') || 'RAS'}.`,
-          gps:endGps, status:'new', isLocked:true, systemGenerated:true, eventType:'shift_end',
-          createdAt:serverTimestamp(), createdBy:currentUser.uid
+        // V5.8.8.5 : garde-fou idempotent. Si le premier clic a déjà terminé
+        // le poste, un second passage ne réécrit rien et n'envoie aucun push.
+        const latestShiftSnap = await getDoc(docRef('shifts', shiftKey)).catch(()=>null);
+        if (latestShiftSnap?.exists?.() && latestShiftSnap.data()?.status === 'completed') {
+          activeShiftCache = null;
+          closeModal();
+          toast('Mission déjà terminée.', 'success');
+          await renderAgentHome();
+          return;
+        }
+
+        const fd = new FormData(form);
+        const endGps = await getGPS({ enableHighAccuracy:true, timeout:10000, maximumAge:0 });
+        let finalReportsCount = reportsSnap.size;
+
+        try {
+          await addDoc(collectionRef('reports'), {
+            agentId:currentUser.uid, agentNom:agentName, siteId:shift.siteId, siteNom:shift.siteNom, shiftId:shift.id, missionId:shift.missionId || null,
+            category:'Fin de service', severity:'Normal', message:`Fin de poste confirmée. Relève : ${fd.get('handoverNote') || 'RAS'}.`,
+            gps:endGps, status:'new', isLocked:true, systemGenerated:true, eventType:'shift_end',
+            createdAt:serverTimestamp(), createdBy:currentUser.uid
+          });
+          finalReportsCount += 1;
+        } catch(reportError) {
+          console.warn('Rapport automatique de fin de poste non créé', reportError);
+        }
+
+        // La clôture du shift est l'écriture métier autoritaire.
+        await updateDoc(docRef('shifts', shift.id), {
+          completedAt: serverTimestamp(), endPositionGPS:endGps, status:'completed', reportsCount: finalReportsCount, roundsCount: roundsSnap.size, incidentsCount, conformityScore:score,
+          handoverNote: fd.get('handoverNote') || 'RAS', signatureName: fd.get('signatureName'), signatureStatement:true,
+          updatedAt: serverTimestamp(), updatedBy: currentUser.uid
         });
-        finalReportsCount += 1;
-      } catch(reportError) { console.warn('Rapport automatique de fin de poste non créé', reportError); }
-      await updateDoc(docRef('shifts', shift.id), {
-        completedAt: serverTimestamp(), endPositionGPS:endGps, status:'completed', reportsCount: finalReportsCount, roundsCount: roundsSnap.size, incidentsCount, conformityScore:score,
-        handoverNote: fd.get('handoverNote') || 'RAS', signatureName: fd.get('signatureName'), signatureStatement:true,
-        updatedAt: serverTimestamp(), updatedBy: currentUser.uid
-      });
-      if (shift.missionId) await updateDoc(docRef('missions', shift.missionId), { status:'completed', actualEnd:serverTimestamp(), reportsCount:finalReportsCount, roundsCount:roundsSnap.size, incidentsCount, conformityScore:score, completedBy:currentUser.uid, updatedAt:serverTimestamp(), updatedBy:currentUser.uid }).catch(()=>{});
-      await updateDoc(docRef('users', currentUser.uid), { statut:'hors_poste', siteActuel:null, siteActuelNom:null, lastSeen: serverTimestamp() });
-      currentProfile = { ...currentProfile, statut:'hors_poste', siteActuel:null, siteActuelNom:null };
-      syncNativePushIdentity().catch(() => {});
-      await addAudit('shift_end', { shiftId: shift.id, reportsCount: finalReportsCount, roundsCount: roundsSnap.size, conformityScore:score, gpsAvailable:!!endGps });
-      spNotifyQGShiftEnded({shiftId:shift.id,siteName:shift.siteNom||'',reportsCount:finalReportsCount,roundsCount:roundsSnap.size,incidentsCount}).then(result=>addAudit('qg_shift_end_notification',{shiftId:shift.id,pushStatus:result?.skipped?(result?.reason||'skipped'):result?.ok?'sent':result?.error||'failed'}).catch(()=>{})).catch(()=>{});
-      const [finalReportsSnap, finalShiftSnap, finalMissionSnap] = await Promise.all([
-        getDocs(query(collectionRef('reports'), where('shiftId','==',shift.id))).catch(()=>({docs:[]})),
-        getDoc(docRef('shifts', shift.id)).catch(()=>null),
-        shift.missionId ? getDoc(docRef('missions', shift.missionId)).catch(()=>null) : Promise.resolve(null)
-      ]);
-      const finalShift = finalShiftSnap?.exists?.() ? {id:finalShiftSnap.id,...finalShiftSnap.data()} : {...shift, status:'completed', handoverNote:fd.get('handoverNote')||'RAS', signatureName:fd.get('signatureName'), completedAt:new Date(), reportsCount:finalReportsCount, roundsCount:roundsSnap.size, incidentsCount, conformityScore:score};
-      const finalMission = finalMissionSnap?.exists?.() ? {id:finalMissionSnap.id,...finalMissionSnap.data()} : {id:shift.missionId||shift.id, ...shift, status:'completed'};
-      archiveMissionReportSilently({ mission:finalMission, shift:finalShift, reports:finalReportsSnap.docs.map(d=>({id:d.id,...d.data()})) }).catch(()=>{});
-      closeModal(); toast(supabaseBridgeEnabled() ? 'Fin de poste confirmée · PDF en cours d’archivage et d’envoi' : 'Fin de poste confirmée · PDF archivé', 'success'); renderAgentHome();
+
+        // Dès que le shift est clôturé, on invalide le cache local pour empêcher
+        // l'ancienne carte "poste actif" de réapparaître si une lecture réseau échoue.
+        activeShiftCache = null;
+
+        if (shift.missionId) {
+          await updateDoc(docRef('missions', shift.missionId), {
+            status:'completed', actualEnd:serverTimestamp(), reportsCount:finalReportsCount, roundsCount:roundsSnap.size, incidentsCount, conformityScore:score, completedBy:currentUser.uid, updatedAt:serverTimestamp(), updatedBy:currentUser.uid
+          }).catch(error => console.warn('Mission liée non clôturée', error));
+        }
+
+        // Le push est exécuté une seule fois après confirmation du status=completed.
+        const endPushResult = await spNotifyQGShiftEnded({
+          shiftId:shift.id, siteName:shift.siteNom||'', reportsCount:finalReportsCount, roundsCount:roundsSnap.size, incidentsCount
+        });
+        await addAudit('qg_shift_end_notification',{
+          shiftId:shift.id,
+          pushStatus:endPushResult?.skipped?(endPushResult?.reason||'skipped'):endPushResult?.ok?'sent':endPushResult?.error||'failed'
+        }).catch(()=>{});
+
+        // Les opérations secondaires ne doivent plus maintenir artificiellement
+        // l'agent en mission si le shift a déjà été clôturé.
+        await updateDoc(docRef('users', currentUser.uid), {
+          statut:'hors_poste', siteActuel:null, siteActuelNom:null, lastSeen: serverTimestamp()
+        }).catch(error => console.warn('Profil agent non rafraîchi après clôture', error));
+        currentProfile = { ...currentProfile, statut:'hors_poste', siteActuel:null, siteActuelNom:null };
+        syncNativePushIdentity().catch(() => {});
+        await addAudit('shift_end', { shiftId: shift.id, reportsCount: finalReportsCount, roundsCount: roundsSnap.size, conformityScore:score, gpsAvailable:!!endGps }).catch(()=>{});
+
+        const [finalReportsSnap, finalShiftSnap, finalMissionSnap] = await Promise.all([
+          getDocs(query(collectionRef('reports'), where('shiftId','==',shift.id))).catch(()=>({docs:[]})),
+          getDoc(docRef('shifts', shift.id)).catch(()=>null),
+          shift.missionId ? getDoc(docRef('missions', shift.missionId)).catch(()=>null) : Promise.resolve(null)
+        ]);
+        const finalShift = finalShiftSnap?.exists?.() ? {id:finalShiftSnap.id,...finalShiftSnap.data()} : {...shift, status:'completed', handoverNote:fd.get('handoverNote')||'RAS', signatureName:fd.get('signatureName'), completedAt:new Date(), reportsCount:finalReportsCount, roundsCount:roundsSnap.size, incidentsCount, conformityScore:score};
+        const finalMission = finalMissionSnap?.exists?.() ? {id:finalMissionSnap.id,...finalMissionSnap.data()} : {id:shift.missionId||shift.id, ...shift, status:'completed'};
+        archiveMissionReportSilently({ mission:finalMission, shift:finalShift, reports:finalReportsSnap.docs.map(d=>({id:d.id,...d.data()})) }).catch(()=>{});
+
+        closeModal();
+        toast(supabaseBridgeEnabled() ? 'Fin de poste confirmée · PDF en cours d’archivage et d’envoi' : 'Fin de poste confirmée · PDF archivé', 'success');
+        await renderAgentHome();
+      } catch(error) {
+        console.error('Erreur clôture mission', error);
+        toast(userFriendlyError(error, 'Erreur fin de poste.'), 'error');
+        if (button && button.isConnected) { button.disabled = false; button.textContent = originalButtonText; }
+      } finally {
+        endShiftSubmissionLocks.delete(shiftKey);
+      }
     });
   } catch(error){ console.error(error); toast('Erreur fin de poste.', 'error'); }
 }
@@ -4467,7 +4528,7 @@ function exportReportHtml(rows, filename, innerOnly=false){
 
 
 
-// -------------------- V5.8.8.3 — WEB PUSH NATIF SUPABASE --------------------
+// -------------------- V5.8.8.5 — WEB PUSH NATIF SUPABASE --------------------
 const SP_PUSH_PREF_DEFAULTS = Object.freeze({ flash:true, planning:true, instructions:true, documents:true, operations:true });
 
 function spLoadPushPreferences(){
@@ -4515,7 +4576,7 @@ async function ensureSentinelleServiceWorker({cleanupLegacy=false, timeoutMs=800
   const existingUrl = registration?.active?.scriptURL || registration?.waiting?.scriptURL || registration?.installing?.scriptURL || '';
   if (!registration || !/service-worker\.js/i.test(existingUrl)) {
     try {
-      registration = await navigator.serviceWorker.register('./service-worker.js?v=5883', { scope:'./', updateViaCache:'none' });
+      registration = await navigator.serviceWorker.register('./service-worker.js?v=5885', { scope:'./', updateViaCache:'none' });
       window.__SENTINELLE_SW_LAST_ERROR__ = '';
     } catch(error) {
       window.__SENTINELLE_SW_LAST_ERROR__ = error?.message || String(error || 'Échec enregistrement Service Worker');
@@ -4558,7 +4619,7 @@ async function spNativePushRequest(body, options={}){
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    // V5.8.8.3 : la passerelle Supabase attend le JWT utilisateur dans Authorization
+    // V5.8.8.5 : la passerelle Supabase attend le JWT utilisateur dans Authorization
     // et la clé publique du projet dans apikey pour un appel navigateur fiable.
     const response = await fetch(pushConfig.pushFunctionUrl, {
       method:'POST',
@@ -4567,7 +4628,7 @@ async function spNativePushRequest(body, options={}){
         'Accept':'application/json',
         'Authorization':`Bearer ${token}`,
         'apikey':stagingConfig.supabasePublishableKey,
-        'x-client-info':'sentinelle-pro-web-push/5.8.8.3'
+        'x-client-info':'sentinelle-pro-web-push/5.8.8.5'
       },
       body:JSON.stringify(body || {}),
       signal:controller.signal,
@@ -4819,7 +4880,7 @@ function renderPushSetup(){
         <button class="btn full" id="push-test-local" type="button">Tester une notification locale</button>
       </div>
       <div class="card"><div class="card-title"><div><h2>Diagnostic</h2><p>Supabase Auth → Edge Function → Web Push.</p></div></div>
-        <div class="setup-box">V5.8.8.3 : aucun OneSignal et aucun Worker Cloudflare n’est nécessaire. Le Service Worker PWA reçoit directement le Web Push.</div>
+        <div class="setup-box">V5.8.8.5 : aucun OneSignal et aucun Worker Cloudflare n’est nécessaire. Le Service Worker PWA reçoit directement le Web Push.</div>
         <div class="list"><div class="item"><div class="item-main"><div class="item-title">Compte connecté</div><div class="item-meta">${safe(currentProfile?.prenom||'')} ${safe(currentProfile?.nom||'')} · ${safe(currentProfile?.role||'')}</div></div></div><div class="item"><div class="item-main"><div class="item-title">Edge Function</div><div class="item-meta">${safe(pushConfig?.pushFunctionUrl||'Non configurée')}</div></div></div></div>
         <button class="btn full" id="push-diagnose-main" data-action="diagnose-web-push" type="button">Diagnostic Web Push</button><button class="btn ghost full" id="push-refresh-main" type="button">Rafraîchir l’état</button>
       </div>
