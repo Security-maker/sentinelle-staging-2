@@ -5,7 +5,7 @@ import {
   createUserWithEmailAndPassword, signOut, onAuthStateChanged, initializeFirestore, persistentLocalCache,
   persistentMultipleTabManager, collection, doc, getDoc, getDocs, addDoc, setDoc, updateDoc, query, where,
   orderBy, limit, onSnapshot, serverTimestamp, Timestamp, runTransaction, deleteDoc, writeBatch, supabaseRuntimeConfigured, getSupabaseClient
-} from './supabase-compat.js?v=588';
+} from './supabase-compat.js?v=5881';
 
 const $app = document.querySelector('#app');
 const $toast = document.querySelector('#toast-root');
@@ -354,7 +354,7 @@ function boot(){
     }
     retryPendingSupabaseDeliveries().catch(error => console.warn('Relance Supabase impossible', error));
   });
-  window.addEventListener('offline', () => toast('Mode hors ligne V5.8.8 — les écritures Supabase sont suspendues jusqu’au retour du réseau', 'warning'));
+  window.addEventListener('offline', () => toast('Mode hors ligne V5.8.8.1 — les écritures Supabase sont suspendues jusqu’au retour du réseau', 'warning'));
 
   if (!isConfigured()) return renderSetupMissing();
   try {
@@ -458,6 +458,7 @@ function bindGlobalEvents(){
   document.querySelectorAll('[data-action="toggle-menu"]').forEach(btn => btn.addEventListener('click', openMenu));
   document.querySelectorAll('[data-action="close-menu"]').forEach(btn => btn.addEventListener('click', closeMenu));
   document.querySelectorAll('[data-route]').forEach(btn => btn.addEventListener('click', () => { closeMenu(); navigate(btn.dataset.route); }));
+  document.querySelectorAll('[data-action="diagnose-web-push"]').forEach(btn => btn.addEventListener('click', () => diagnosePushSetup(btn)));
   document.querySelectorAll('[data-action="logout"]').forEach(btn => btn.addEventListener('click', async () => {
     closeMenu();
     if (currentUser) await updateDoc(docRef('users', currentUser.uid), { isOnline:false, lastSeen: serverTimestamp() }).catch(()=>{});
@@ -3750,9 +3751,8 @@ async function renderQGFlash(){
     ...agents.map(a=>`<option value="agent:${safe(a.id || a.uid)}">Agent · ${safe(`${a.prenom || ''} ${a.nom || ''}`.trim() || a.email || a.id)}</option>`)
   ].join('');
   const pushStatus = webPushFunctionConfigured() ? '<span class="pill green">Web Push natif</span>' : '<span class="pill orange">Web Push à configurer</span>';
-  const body = `<section class="grid cols-2"><div class="card"><div class="card-title"><div><h2>Envoyer Flash</h2><p>Alerte descendante prioritaire</p></div>${pushStatus}</div><form id="flash-form"><div class="field"><label>Titre</label><input class="input" name="title" required placeholder="Message Flash reçu"></div><div class="field"><label>Message</label><textarea class="textarea" name="message" required></textarea></div><div class="form-grid"><div class="field"><label>Priorité</label><select class="select" name="priority"><option>Information</option><option>Important</option><option>Urgent</option><option>Critique</option></select></div><div class="field"><label>Cible</label><select class="select" name="target">${targetOptions}</select></div></div><button class="btn primary full" type="submit">Envoyer Flash</button></form><div class="divider"></div><button class="btn full" id="diagnose-push" type="button">Diagnostic Web Push</button><p class="muted" style="font-size:12px;margin-top:10px">Le Flash reste visible dans l’app et peut aussi être envoyé sur l’écran verrouillé via Supabase Edge Functions + Web Push natif.</p></div><div class="card"><div class="card-title"><div><h2>Historique Flash</h2><p>Confirmations de lecture et statut push</p></div></div><div id="flash-history" class="list"><div class="empty">Chargement...</div></div></div></section>`;
+  const body = `<section class="grid cols-2"><div class="card"><div class="card-title"><div><h2>Envoyer Flash</h2><p>Alerte descendante prioritaire</p></div>${pushStatus}</div><form id="flash-form"><div class="field"><label>Titre</label><input class="input" name="title" required placeholder="Message Flash reçu"></div><div class="field"><label>Message</label><textarea class="textarea" name="message" required></textarea></div><div class="form-grid"><div class="field"><label>Priorité</label><select class="select" name="priority"><option>Information</option><option>Important</option><option>Urgent</option><option>Critique</option></select></div><div class="field"><label>Cible</label><select class="select" name="target">${targetOptions}</select></div></div><button class="btn primary full" type="submit">Envoyer Flash</button></form><div class="divider"></div><button class="btn full" id="diagnose-push" data-action="diagnose-web-push" type="button">Diagnostic Web Push</button><p class="muted" style="font-size:12px;margin-top:10px">Le Flash reste visible dans l’app et peut aussi être envoyé sur l’écran verrouillé via Supabase Edge Functions + Web Push natif.</p></div><div class="card"><div class="card-title"><div><h2>Historique Flash</h2><p>Confirmations de lecture et statut push</p></div></div><div id="flash-history" class="list"><div class="empty">Chargement...</div></div></div></section>`;
   render(page('Messages Flash QG', 'Communication descendante immédiate', body));
-    document.querySelector('#diagnose-push')?.addEventListener('click', diagnosePushSetup);
   document.querySelector('#flash-form').addEventListener('submit', async e => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
@@ -4454,7 +4454,7 @@ function exportReportHtml(rows, filename, innerOnly=false){
 
 
 
-// -------------------- V5.8.8 — WEB PUSH NATIF SUPABASE --------------------
+// -------------------- V5.8.8.1 — WEB PUSH NATIF SUPABASE --------------------
 const SP_PUSH_PREF_DEFAULTS = Object.freeze({ flash:true, planning:true, instructions:true, documents:true, operations:true });
 
 function spLoadPushPreferences(){
@@ -4503,18 +4503,30 @@ function urlBase64ToUint8Array(value){
   return Uint8Array.from([...raw].map(char => char.charCodeAt(0)));
 }
 
-async function spNativePushRequest(body){
+async function spNativePushRequest(body, options={}){
   if (!currentUser) return { ok:false, skipped:true, reason:'Utilisateur non connecté' };
   if (!webPushFunctionConfigured()) return { ok:false, skipped:true, reason:'Edge Function Web Push non configurée' };
+  const timeoutMs = Math.max(3000, Number(options?.timeoutMs || 20000));
   const token = await currentUser.getIdToken(false);
-  const response = await fetch(pushConfig.pushFunctionUrl, {
-    method:'POST',
-    headers:{ 'Content-Type':'application/json', 'Authorization':`Bearer ${token}` },
-    body:JSON.stringify(body || {})
-  });
-  const result = await response.json().catch(()=>({}));
-  if (!response.ok || result?.ok === false) throw new Error(result?.error || result?.message || `Web Push HTTP ${response.status}`);
-  return result;
+  if (!token) throw new Error('Session Supabase absente ou expirée.');
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(pushConfig.pushFunctionUrl, {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json', 'Authorization':`Bearer ${token}` },
+      body:JSON.stringify(body || {}),
+      signal:controller.signal
+    });
+    const result = await response.json().catch(()=>({}));
+    if (!response.ok || result?.ok === false) throw new Error(result?.error || result?.message || `Web Push HTTP ${response.status}`);
+    return result;
+  } catch(error) {
+    if (error?.name === 'AbortError') throw new Error(`Edge Function injoignable après ${Math.round(timeoutMs/1000)} s.`);
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function spGetVapidPublicKey(){
@@ -4527,9 +4539,17 @@ async function spGetVapidPublicKey(){
   return key;
 }
 
-async function nativePushState(){
+async function nativePushState(options={}){
   if (!('serviceWorker' in navigator)) return {worker:'',workerState:'absent',nativeSubscribed:false,endpoint:''};
-  const registration = await navigator.serviceWorker.getRegistration().catch(()=>null) || await navigator.serviceWorker.ready.catch(()=>null);
+  const timeoutMs = Math.max(1500, Number(options?.timeoutMs || 5000));
+  let registration = await navigator.serviceWorker.getRegistration().catch(()=>null);
+  if (!registration) {
+    registration = await Promise.race([
+      navigator.serviceWorker.ready.catch(()=>null),
+      new Promise(resolve => setTimeout(()=>resolve(null), timeoutMs))
+    ]);
+  }
+  if (!registration) return {scope:new URL('./',location.href).href,worker:'',workerState:'non prêt / délai dépassé',nativeSubscribed:false,endpoint:''};
   const subscription = registration?.pushManager ? await registration.pushManager.getSubscription().catch(()=>null) : null;
   return {
     scope:registration?.scope || new URL('./',location.href).href,
@@ -4623,20 +4643,42 @@ async function registerPushNotifications(){
   }
 }
 
-async function diagnosePushSetup(){
-  let edge='Non testée', db='Non testé';
+async function diagnosePushSetup(triggerButton=null){
+  const button = triggerButton instanceof HTMLElement ? triggerButton : document.querySelector('#push-diagnose-main, #diagnose-push');
+  const originalLabel = button?.textContent || 'Diagnostic Web Push';
+  if (button) { button.disabled=true; button.textContent='Diagnostic en cours…'; }
+  showModal('Diagnostic Web Push', `<div id="web-push-diagnostic-result"><div class="setup-box"><strong>Diagnostic en cours…</strong><br>Vérification de l’Edge Function, de Supabase et du Service Worker.</div></div>`);
   try {
-    const health=await spNativePushRequest({action:'health'});
-    edge=`${health.service||'send-web-push'} · VAPID ${health.vapidConfigured?'OK':'MANQUANT'}`;
-  } catch(error) { edge=`Erreur : ${error.message||error}`; }
-  try {
-    const supabase=getSupabaseClient();
-    const {data,error}=await supabase.rpc('sentinelle_web_push_status');
-    if(error) throw error;
-    db=`${data?.enabled_count ?? 0} abonnement(s) actif(s) sur ce compte`;
-  } catch(error) { db=`Erreur : ${error.message||error}`; }
-  const native=await nativePushState().catch(()=>({worker:'',workerState:'inconnu',nativeSubscribed:false,endpoint:''}));
-  showModal('Diagnostic Web Push', `<div class="setup-box"><strong>Edge Function</strong><br>${safe(edge)}</div><div class="setup-box" style="margin-top:12px"><strong>Base Supabase</strong><br>${safe(db)}</div><div class="setup-box" style="margin-top:12px"><strong>Appareil</strong><br>Permission : ${safe(typeof Notification!=='undefined'?Notification.permission:'indisponible')}<br>Service Worker : ${safe(native.worker||'absent')}<br>État : ${safe(native.workerState)}<br>Abonnement natif : ${native.nativeSubscribed?'oui':'non'}</div>`);
+    const [edgeResult, dbResult, nativeResult] = await Promise.allSettled([
+      spNativePushRequest({action:'health'},{timeoutMs:8000}),
+      (async()=>{
+        const supabase=getSupabaseClient();
+        const {data,error}=await supabase.rpc('sentinelle_web_push_status');
+        if(error) throw error;
+        return data;
+      })(),
+      nativePushState({timeoutMs:4000})
+    ]);
+    const edge = edgeResult.status==='fulfilled'
+      ? `${edgeResult.value?.service||'send-web-push'} · VAPID ${edgeResult.value?.vapidConfigured?'OK':'MANQUANT'}`
+      : `Erreur : ${edgeResult.reason?.message||edgeResult.reason||'inconnue'}`;
+    const db = dbResult.status==='fulfilled'
+      ? `${dbResult.value?.enabled_count ?? 0} abonnement(s) actif(s) sur ce compte`
+      : `Erreur : ${dbResult.reason?.message||dbResult.reason||'inconnue'}`;
+    const native = nativeResult.status==='fulfilled'
+      ? nativeResult.value
+      : {worker:'',workerState:`Erreur : ${nativeResult.reason?.message||nativeResult.reason||'inconnue'}`,nativeSubscribed:false,endpoint:''};
+    const html = `<div class="setup-box"><strong>Edge Function</strong><br>${safe(edge)}</div><div class="setup-box" style="margin-top:12px"><strong>Base Supabase</strong><br>${safe(db)}</div><div class="setup-box" style="margin-top:12px"><strong>Appareil</strong><br>Permission : ${safe(typeof Notification!=='undefined'?Notification.permission:'indisponible')}<br>Service Worker : ${safe(native.worker||'absent')}<br>État : ${safe(native.workerState)}<br>Abonnement natif : ${native.nativeSubscribed?'oui':'non'}</div>`;
+    const resultBox=document.querySelector('#web-push-diagnostic-result');
+    if(resultBox) resultBox.innerHTML=html; else showModal('Diagnostic Web Push', html);
+  } catch(error) {
+    const message=userFriendlyError(error,'Diagnostic Web Push impossible.');
+    const resultBox=document.querySelector('#web-push-diagnostic-result');
+    if(resultBox) resultBox.innerHTML=`<div class="setup-box warning-copy"><strong>Diagnostic impossible</strong><br>${safe(message)}</div>`;
+    else showModal('Diagnostic Web Push', `<div class="setup-box warning-copy">${safe(message)}</div>`);
+  } finally {
+    if (button && document.contains(button)) { button.disabled=false; button.textContent=originalLabel; }
+  }
 }
 
 async function spSendOperationalPush({ title, message, category='planning', priority='Information', userIds=[], siteId='', route='home', data={}, target='' }={}){
@@ -4715,9 +4757,9 @@ function renderPushSetup(){
         <button class="btn full" id="push-test-local" type="button">Tester une notification locale</button>
       </div>
       <div class="card"><div class="card-title"><div><h2>Diagnostic</h2><p>Supabase Auth → Edge Function → Web Push.</p></div></div>
-        <div class="setup-box">V5.8.8 : aucun OneSignal et aucun Worker Cloudflare n’est nécessaire. Le Service Worker PWA reçoit directement le Web Push.</div>
+        <div class="setup-box">V5.8.8.1 : aucun OneSignal et aucun Worker Cloudflare n’est nécessaire. Le Service Worker PWA reçoit directement le Web Push.</div>
         <div class="list"><div class="item"><div class="item-main"><div class="item-title">Compte connecté</div><div class="item-meta">${safe(currentProfile?.prenom||'')} ${safe(currentProfile?.nom||'')} · ${safe(currentProfile?.role||'')}</div></div></div><div class="item"><div class="item-main"><div class="item-title">Edge Function</div><div class="item-meta">${safe(pushConfig?.pushFunctionUrl||'Non configurée')}</div></div></div></div>
-        <button class="btn full" id="push-diagnose-main" type="button">Diagnostic Web Push</button><button class="btn ghost full" id="push-refresh-main" type="button">Rafraîchir l’état</button>
+        <button class="btn full" id="push-diagnose-main" data-action="diagnose-web-push" type="button">Diagnostic Web Push</button><button class="btn ghost full" id="push-refresh-main" type="button">Rafraîchir l’état</button>
       </div>
     </section>
     <section class="card"><div class="card-title"><div><h2>Notifications à recevoir</h2><p>Choisis les événements envoyés sur cet appareil.</p></div></div><div class="list">
@@ -4733,7 +4775,6 @@ function renderPushSetup(){
   document.querySelector('#push-activate-main')?.addEventListener('click',registerPushNotifications);
   document.querySelector('#push-save-preferences')?.addEventListener('click',async()=>{const preferences={...SP_PUSH_PREF_DEFAULTS};document.querySelectorAll('[data-push-pref]').forEach(input=>{preferences[input.dataset.pushPref]=Boolean(input.checked)});await spSavePushPreferences(preferences);toast('Préférences de notifications enregistrées.','success');});
   document.querySelector('#push-refresh-main')?.addEventListener('click',()=>renderPushSetup());
-  document.querySelector('#push-diagnose-main')?.addEventListener('click',diagnosePushSetup);
   document.querySelector('#push-test-local')?.addEventListener('click',async()=>{try{if(typeof Notification==='undefined')return toast('Notifications indisponibles sur ce navigateur.','warning');if(Notification.permission!=='granted')return toast('Autorisation non accordée sur cet appareil.','warning');const reg=await navigator.serviceWorker.ready;await reg.showNotification('Sentinelle Pro',{body:'Notification locale de test. Le Service Worker est opérationnel.',tag:'sentinelle-local-test',icon:'./assets/icons/icon-192.png',badge:'./assets/icons/icon-192.png'});toast('Notification locale envoyée.','success')}catch(error){toast(userFriendlyError(error,'Test notification impossible.'),'error')}});
 }
 
