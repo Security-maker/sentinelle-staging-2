@@ -15,10 +15,10 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIINfQY7Wsj7dDtkZcaM5yr9ggE98u+28U8=" crossorigin="" />
-  <link rel="stylesheet" href="./style.css?v=587" />
+  <link rel="stylesheet" href="./style.css?v=5871" />
 </head>
 <body>
-  <div class="staging-v587-banner">STAGING · V5.8.7 · SUPABASE AUTH + STORAGE · PUSH LIVE ISOLÉ</div>
+  <div class="staging-v587-banner">STAGING · V5.8.7.1 · SUPABASE AUTH + STORAGE · CORRECTIF PHOTO MCI</div>
   <script>window.__SENTINELLE_SUPABASE_CORE__ = true; window.__SENTINELLE_SUPABASE_STORAGE__ = true;</script>
   <div id="app" class="app-loading">
     <div class="boot-card">
@@ -62,7 +62,7 @@
               await Promise.all(keys.filter(key => key.startsWith('sentinelle-pro-') || key.startsWith('sentinelle-cdn-')).map(key => caches.delete(key)));
             }
           } catch (_) {}
-          location.replace(`${location.pathname}?fresh=587-${Date.now()}`);
+          location.replace(`${location.pathname}?fresh=5871-${Date.now()}`);
         });
       };
       window.__sentinelleShowStartupError = showStartupError;
@@ -75,7 +75,7 @@
     })();
   </script>
   <script type="module">
-    import('./app.js?v=587').catch(error => {
+    import('./app.js?v=5871').catch(error => {
       console.error(error);
       window.__sentinelleShowStartupError?.('Module principal indisponible', error?.message || error);
     });

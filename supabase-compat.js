@@ -186,6 +186,22 @@ async function hydrateDecodedMedia(path,row,decoded){
     const mediaPath=decoded.badgePhotoStoragePath;
     if(bucket&&mediaPath) decoded.badgePhotoDataUrl=await signedPrivateUrl(bucket,mediaPath).catch(()=>decoded.badgePhotoDataUrl||'');
   }
+  if(path==='generatedDocuments' && Array.isArray(decoded?.payload?.rows)){
+    decoded.payload.rows=await Promise.all(decoded.payload.rows.map(async report=>{
+      const bucket=report?.photoStorageBucket;
+      const mediaPath=report?.photoStoragePath;
+      if(!bucket||!mediaPath) return report;
+      const photoUrl=await signedPrivateUrl(bucket,mediaPath).catch(()=>report.photoUrl||'');
+      return {...report,photoUrl,photoAvailable:Boolean(photoUrl||mediaPath)};
+    }));
+    if(Array.isArray(decoded.payload.timelineRows)){
+      const byId=new Map(decoded.payload.rows.map(report=>[String(report?.id||''),report]));
+      decoded.payload.timelineRows=decoded.payload.timelineRows.map(row=>{
+        const hit=byId.get(String(row?.id||''));
+        return hit ? {...row,photoUrl:hit.photoUrl,photoAvailable:hit.photoAvailable,photoStorageBucket:hit.photoStorageBucket,photoStoragePath:hit.photoStoragePath} : row;
+      });
+    }
+  }
   return decoded;
 }
 async function prepareGenericMedia(path,id,data,existingPayload={}){

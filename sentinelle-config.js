@@ -1,7 +1,7 @@
-// Sentinelle Pro V5.8.7 — STAGING Supabase Auth + Core + Storage
+// Sentinelle Pro V5.8.7.1 — STAGING Supabase Auth + Core + Storage
 // Aucun SDK Firebase n'est chargé par cette version.
 export const stagingConfig = Object.freeze({
-  version: '5.8.7',
+  version: '5.8.7.1',
   environment: 'staging',
   supabaseUrl: 'https://ksoyqtsrhtsfbwmxipqz.supabase.co',
   supabasePublishableKey: 'sb_publishable_TaSZX6F0nsEecsHPxjZ8hg_c1cZtQuN',

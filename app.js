@@ -16,7 +16,7 @@ window.__SENTINELLE_MODULE_LOADED__ = true;
 let fbApp = null;
 let auth = null;
 let db = null;
-let storage = null; // V5.8.7 : médias et PDF utilisent Supabase Storage via la couche compat.
+let storage = null; // V5.8.7.1 : médias et PDF utilisent Supabase Storage via la couche compat.
 let currentUser = null;
 let currentProfile = null;
 let currentRoute = 'home';
@@ -357,7 +357,7 @@ function boot(){
     }
     retryPendingSupabaseDeliveries().catch(error => console.warn('Relance Supabase impossible', error));
   });
-  window.addEventListener('offline', () => toast('Mode hors ligne V5.8.7 — les écritures Supabase sont suspendues jusqu’au retour du réseau', 'warning'));
+  window.addEventListener('offline', () => toast('Mode hors ligne V5.8.7.1 — les écritures Supabase sont suspendues jusqu’au retour du réseau', 'warning'));
 
   if (!isConfigured()) return renderSetupMissing();
   try {
@@ -975,7 +975,7 @@ async function renderAgentHome(){
     </section>
     <section class="card offline-ready-card ${navigator.onLine?'':'offline-active'}" style="margin-top:16px">
       <div class="card-title"><div><h2>Mode hors ligne</h2><p id="offline-ready-status">${safe(offlineReadyText())}</p></div>${navigator.onLine?'<button class="btn small" id="offline-sync-now">Synchroniser maintenant</button>':'<span class="pill orange">Hors ligne</span>'}</div>
-      <div class="setup-box ${navigator.onLine?'':'warning-copy'}">${navigator.onLine?'Cache local de confort préparé. Le hors-ligne complet Supabase reste à valider avant la bascule production.':'V5.8.7 staging : les écritures Supabase ne sont pas encore garanties hors ligne. Une alerte PTI hors ligne ne peut pas prévenir le QG immédiatement : appelle le QG ou le 112.'}</div>
+      <div class="setup-box ${navigator.onLine?'':'warning-copy'}">${navigator.onLine?'Cache local de confort préparé. Le hors-ligne complet Supabase reste à valider avant la bascule production.':'V5.8.7.1 staging : les écritures Supabase ne sont pas encore garanties hors ligne. Une alerte PTI hors ligne ne peut pas prévenir le QG immédiatement : appelle le QG ou le 112.'}</div>
     </section>
     <section class="card" style="margin-top:16px">
       <div class="card-title"><div><h2>${isWorking?'Poste en cours':'Prise de poste'}</h2><p>${isWorking?'Résumé, relève et clôture':'Mission planifiée ou prise de poste libre'}</p></div></div>
@@ -1268,9 +1268,17 @@ function listenAgentRecentReports(){
   }, () => box.innerHTML = `<div class="empty">Flux indisponible. Vérifie les RLS Supabase.</div>`);
   unsubscribeList.push(unsub);
 }
+function reportPhotoPreviewHtml(report,{large=false}={}){
+  if (report?.photoUrl) {
+    const size = large ? 'max-width:100%;max-height:520px' : 'width:84px;height:64px';
+    return `<img src="${safe(report.photoUrl)}" alt="Photo jointe au rapport" loading="lazy" style="${size};object-fit:cover;border-radius:12px;border:1px solid rgba(255,255,255,.12);display:block">`;
+  }
+  if (report?.photoStoragePath || report?.photoAvailable) return `<span class="pill blue">📷 Photo enregistrée</span>`;
+  return '<span class="muted">—</span>';
+}
 function reportTimeline(r){
   const sev = String(r.severity || 'normal').toLowerCase();
-  return `<div class="timeline-entry ${sev}"><div class="item-title">${safe(r.category || 'Rapport')} · ${safe(r.siteNom || '')}</div><div class="item-meta">${dateText(r.createdAt)} · Gravité ${safe(r.severity || 'Normal')}${r.photoUrl?' · 📷 Photo jointe':''}</div><div style="margin-top:6px">${safe(r.message || '')}</div></div>`;
+  return `<div class="timeline-entry ${sev}"><div class="item-title">${safe(r.category || 'Rapport')} · ${safe(r.siteNom || '')}</div><div class="item-meta">${dateText(r.createdAt)} · Gravité ${safe(r.severity || 'Normal')}${reportHasPhoto(r)?' · 📷 Photo jointe':''}</div><div style="margin-top:6px">${safe(r.message || '')}</div>${reportHasPhoto(r)?`<div style="margin-top:10px">${reportPhotoPreviewHtml(r)}</div>`:''}</div>`;
 }
 
 async function renderAgentMCI(){
@@ -2956,7 +2964,7 @@ async function printMissionReport({ mission, shift={}, reports=[] }){
   const data = missionPdfData({ mission, shift, reports });
   try {
     const archived = await archivePdfDocument(data, { silent:true });
-    downloadGeneratedPdf(archived, { silent:true });
+    await downloadGeneratedPdf(archived, { silent:true });
     toast('Rapport PDF téléchargé et archivé dans Documents.', 'success');
   } catch(error) {
     console.error(error);
@@ -3121,7 +3129,7 @@ function renderReportsTable(rows){
   const mode = document.querySelector('#report-view-mode')?.value || 'missions';
   if (!filtered.length) return box.innerHTML = `<div class="empty">Aucun rapport trouvé.</div>`;
   if (mode === 'missions') return renderMissionView(box, groups);
-  box.innerHTML = `<table class="table"><thead><tr><th>Mission</th><th>Heure</th><th>Agent</th><th>Site</th><th>Catégorie</th><th>Gravité</th><th>Message</th><th>Statut</th><th>Action</th></tr></thead><tbody>${filtered.map(r => `<tr><td><span class="mission-badge">${safe(shortMissionId(r))}</span></td><td>${dateText(r.createdAt)}</td><td>${safe(r.agentNom)}</td><td>${safe(r.siteNom)}</td><td>${safe(r.category)}</td><td>${safe(r.severity)}</td><td>${safe(r.message)}</td><td>${safe(r.status || 'new')}</td><td><div class="table-actions"><button class="btn small" data-report-detail="${safe(r.id)}">Détail</button>${isStrictAdmin()?`<button class="btn small danger" data-report-delete="${safe(r.id)}">Supprimer</button>`:''}</div></td></tr>`).join('')}</tbody></table>`;
+  box.innerHTML = `<table class="table"><thead><tr><th>Mission</th><th>Heure</th><th>Agent</th><th>Site</th><th>Catégorie</th><th>Gravité</th><th>Message</th><th>Photo</th><th>Statut</th><th>Action</th></tr></thead><tbody>${filtered.map(r => `<tr><td><span class="mission-badge">${safe(shortMissionId(r))}</span></td><td>${dateText(r.createdAt)}</td><td>${safe(r.agentNom)}</td><td>${safe(r.siteNom)}</td><td>${safe(r.category)}</td><td>${safe(r.severity)}</td><td>${safe(r.message)}</td><td>${reportPhotoPreviewHtml(r)}</td><td>${safe(r.status || 'new')}</td><td><div class="table-actions"><button class="btn small" data-report-detail="${safe(r.id)}">Détail</button>${isStrictAdmin()?`<button class="btn small danger" data-report-delete="${safe(r.id)}">Supprimer</button>`:''}</div></td></tr>`).join('')}</tbody></table>`;
   document.querySelectorAll('[data-report-detail]').forEach(btn => btn.addEventListener('click', () => showReportDetail(filtered.find(r=>r.id===btn.dataset.reportDetail))));
   document.querySelectorAll('[data-report-delete]').forEach(btn => btn.addEventListener('click', () => requestDeleteReports(filtered.filter(r=>r.id===btn.dataset.reportDelete), 'ce rapport MCI')));
 }
@@ -3167,14 +3175,14 @@ function renderMissionView(box, groups){
 function showMissionDetail(index){
   const g = qgReportMissionGroups[index];
   if (!g) return;
-  const rows = g.reports.map(r => `<tr><td>${dateText(r.createdAt)}</td><td>${safe(r.category)}</td><td>${safe(r.severity)}</td><td>${safe(r.message)}</td><td>${safe(r.status || 'new')}</td><td><button class="btn small" data-report-detail-modal="${safe(r.id)}">Détail</button></td></tr>`).join('');
-  showModal('Main courante par mission', `<div class="list"><div class="item"><div class="item-main"><div class="item-title">${safe(missionTitle(g))}</div><div class="item-meta">Mission ${safe(g.key)}<br>${g.count} rapports · ${g.incidents} événements · ${g.critical} critique(s)</div></div></div></div><div class="table-wrap"><table class="table"><thead><tr><th>Heure</th><th>Catégorie</th><th>Gravité</th><th>Message</th><th>Statut</th><th>Action</th></tr></thead><tbody>${rows}</tbody></table></div><div class="btn-row"><button class="btn primary" id="export-current-mission">Exporter CSV</button><button class="btn" id="print-current-mission">Rapport PDF</button></div>`);
+  const rows = g.reports.map(r => `<tr><td>${dateText(r.createdAt)}</td><td>${safe(r.category)}</td><td>${safe(r.severity)}</td><td>${safe(r.message)}</td><td>${reportPhotoPreviewHtml(r)}</td><td>${safe(r.status || 'new')}</td><td><button class="btn small" data-report-detail-modal="${safe(r.id)}">Détail</button></td></tr>`).join('');
+  showModal('Main courante par mission', `<div class="list"><div class="item"><div class="item-main"><div class="item-title">${safe(missionTitle(g))}</div><div class="item-meta">Mission ${safe(g.key)}<br>${g.count} rapports · ${g.incidents} événements · ${g.critical} critique(s)</div></div></div></div><div class="table-wrap"><table class="table"><thead><tr><th>Heure</th><th>Catégorie</th><th>Gravité</th><th>Message</th><th>Photo</th><th>Statut</th><th>Action</th></tr></thead><tbody>${rows}</tbody></table></div><div class="btn-row"><button class="btn primary" id="export-current-mission">Exporter CSV</button><button class="btn" id="print-current-mission">Rapport PDF</button></div>`);
   document.querySelector('#export-current-mission')?.addEventListener('click', () => exportCSV(g.reports, `mission-${g.key}.csv`));
   document.querySelector('#print-current-mission')?.addEventListener('click', () => printMissionGroup(g));
   document.querySelectorAll('[data-report-detail-modal]').forEach(btn => btn.addEventListener('click', () => showReportDetail(g.reports.find(r=>r.id===btn.dataset.reportDetailModal))));
 }
 function showReportDetail(r){
-  showModal('Détail rapport MCI', `<div class="list"><div class="item"><div class="item-main"><div class="item-title">${safe(r.category)} · ${safe(r.severity)}</div><div class="item-meta">${safe(r.agentNom)} · ${safe(r.siteNom)} · ${dateText(r.createdAt)}</div><p>${safe(r.message)}</p>${r.photoUrl?`<img src="${safe(r.photoUrl)}" style="border-radius:16px;margin-top:12px">`:''}${r.gps?`<p class="muted">GPS : ${r.gps.lat}, ${r.gps.lng}</p>`:''}</div></div></div><div class="field"><label>Note superviseur</label><textarea class="textarea" id="supervisor-note" placeholder="Ajouter une note...">${safe(r.supervisorNote || '')}</textarea></div><div class="btn-row"><button class="btn primary" id="mark-treated">Marquer comme traité</button>${isStrictAdmin()?'<button class="btn danger" id="delete-current-report">Supprimer définitivement</button>':''}</div>`);
+  showModal('Détail rapport MCI', `<div class="list"><div class="item"><div class="item-main"><div class="item-title">${safe(r.category)} · ${safe(r.severity)}</div><div class="item-meta">${safe(r.agentNom)} · ${safe(r.siteNom)} · ${dateText(r.createdAt)}</div><p>${safe(r.message)}</p>${reportHasPhoto(r)?`<div style="margin-top:14px"><strong>Preuve photographique</strong><div style="margin-top:8px">${reportPhotoPreviewHtml(r,{large:true})}</div></div>`:''}${r.gps?`<p class="muted">GPS : ${r.gps.lat}, ${r.gps.lng}</p>`:''}</div></div></div><div class="field"><label>Note superviseur</label><textarea class="textarea" id="supervisor-note" placeholder="Ajouter une note...">${safe(r.supervisorNote || '')}</textarea></div><div class="btn-row"><button class="btn primary" id="mark-treated">Marquer comme traité</button>${isStrictAdmin()?'<button class="btn danger" id="delete-current-report">Supprimer définitivement</button>':''}</div>`);
   document.querySelector('#mark-treated')?.addEventListener('click', async () => {
     await updateDoc(docRef('reports', r.id), { status:'treated', supervisorNote:document.querySelector('#supervisor-note').value, treatedBy:currentUser.uid, treatedAt:serverTimestamp() });
     await addAudit('report_treated', { reportId:r.id });
@@ -3424,7 +3432,7 @@ function showAgentForm(u={}){
   const c = badgeCompany(u);
   let pendingBadgePhotoDataUrl = u.badgePhotoDataUrl || u.photoDataUrl || '';
   showModal(isEdit?'Modifier profil':'Créer compte agent', `<form id="agent-form">
-    ${!isEdit ? `<div class="setup-box">V5.8.7 staging : le compte Supabase Auth et son profil sont créés ensemble par une Edge Function sécurisée. Aucun secret administrateur n’est exposé dans le navigateur.</div>` : ''}
+    ${!isEdit ? `<div class="setup-box">V5.8.7.1 staging : le compte Supabase Auth et son profil sont créés ensemble par une Edge Function sécurisée. Aucun secret administrateur n’est exposé dans le navigateur.</div>` : ''}
     <div class="invoice-form-section"><h3>Identité et accès</h3><div class="form-grid">
       <div class="field"><label>UID historique / external_uid ${isEdit?'':'(requis après création Supabase Auth)'}</label><input class="input mono" name="uid" value="${safe(u.id || u.uid || '')}" ${isEdit?'readonly':''} placeholder="Conserver l’external_uid du profil métier"></div>
       <div class="field"><label>Email de connexion</label><input class="input" name="email" type="email" value="${safe(u.email || '')}" required></div>
@@ -3773,7 +3781,7 @@ function isoDateValue(value){
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 function documentTypeLabel(type){ return ({mci:'Main courante MCI', mission:'Rapport de mission', rounds:'Rapport de rondes', alerts:'Rapport SOS / PTI', invoice:'Facture'}[type] || type || 'Document'); }
-function compactReport(r){ return { id:r.id||'', createdAt:isoDateValue(r.createdAt), agentId:r.agentId||'', agentNom:r.agentNom||'', siteId:r.siteId||'', siteNom:r.siteNom||'', missionId:r.missionId||'', shiftId:r.shiftId||'', category:r.category||'', severity:r.severity||'', message:r.message||'', status:r.status||'new', supervisorNote:r.supervisorNote||'', photoUrl:r.photoUrl||'', photoAvailable:Boolean(r.photoAvailable||r.photoUrl), photoBytes:Number(r.photoBytes||0), photoMimeType:r.photoMimeType||'', photoWidth:Number(r.photoWidth||0), photoHeight:Number(r.photoHeight||0), photoCapturedAt:isoDateValue(r.photoCapturedAt)||null, gps:r.gps||null }; }
+function compactReport(r){ return { id:r.id||'', createdAt:isoDateValue(r.createdAt), agentId:r.agentId||'', agentNom:r.agentNom||'', siteId:r.siteId||'', siteNom:r.siteNom||'', missionId:r.missionId||'', shiftId:r.shiftId||'', category:r.category||'', severity:r.severity||'', message:r.message||'', status:r.status||'new', supervisorNote:r.supervisorNote||'', photoUrl:r.photoUrl||'', photoAvailable:Boolean(r.photoAvailable||r.photoUrl||r.photoStoragePath), photoStorageBucket:r.photoStorageBucket||'', photoStoragePath:r.photoStoragePath||'', photoBytes:Number(r.photoBytes||0), photoMimeType:r.photoMimeType||'', photoWidth:Number(r.photoWidth||0), photoHeight:Number(r.photoHeight||0), photoCapturedAt:isoDateValue(r.photoCapturedAt)||null, gps:r.gps||null }; }
 function compactRound(r){ return { id:r.id||'', scannedAt:isoDateValue(r.scannedAt), agentId:r.agentId||'', agentNom:r.agentNom||'', siteId:r.siteId||'', siteNom:r.siteNom||'', checkpointName:r.checkpointName||'', scanMethod:r.scanMethod||'', isValid:r.isValid !== false }; }
 function compactAlert(r){ return { id:r.id||'', createdAt:isoDateValue(r.createdAt || r.heure), agentId:r.agentId||'', agentNom:r.agentNom||'', siteId:r.siteActuel||r.siteId||'', siteNom:r.siteActuelNom||r.siteNom||'', typeAlerte:r.typeAlerte||'SOS/PTI', statut:r.statut||'', niveau:r.niveau||'', message:r.message||'', closeReason:r.closeReason||r.closureReason||'' }; }
 function compactMission(m){ return { id:m.id||'', agentId:m.agentId||'', agentNom:m.agentNom||'', siteId:m.siteId||'', siteNom:m.siteNom||'', clientId:m.clientId||'', type:m.type||m.missionType||'', instructions:m.instructions||'', status:m.status||'', scheduledStart:isoDateValue(m.scheduledStart), scheduledEnd:isoDateValue(m.scheduledEnd), actualStart:isoDateValue(m.actualStart), actualEnd:isoDateValue(m.actualEnd), conformityScore:m.conformityScore ?? null, roundsCount:m.roundsCount||0, incidentsCount:m.incidentsCount||0 }; }
@@ -3842,9 +3850,10 @@ function generatedDocumentMeta(d){
   }
   return [`Type : ${documentTypeLabel(d.type)}`, `Site : ${d.siteNom || 'Tous sites'}`, `Lignes : ${d.rowCount || generatedDocumentRows(d).length}`];
 }
-function downloadGeneratedPdf(d, { silent=false }={}){
+async function downloadGeneratedPdf(d, { silent=false }={}){
   try {
-    const doc = createGeneratedDocumentPdf(d);
+    const prepared = await prepareGeneratedDocumentPhotos(d);
+    const doc = createGeneratedDocumentPdf(prepared);
     doc.save(documentSlug(d.title || documentTypeLabel(d.type), 'pdf'));
     if (!silent) toast('PDF généré et téléchargé.', 'success');
   } catch(error) {
@@ -3855,7 +3864,8 @@ function downloadGeneratedPdf(d, { silent=false }={}){
 async function deliverGeneratedDocumentToSupabase(archived){
   if (!supabaseBridgeEnabled() || !navigator.onLine || !archived?.id) return { skipped:true };
   try {
-    const pdfBlob = createGeneratedDocumentPdf(archived).output('blob');
+    const preparedArchived = await prepareGeneratedDocumentPhotos(archived);
+    const pdfBlob = createGeneratedDocumentPdf(preparedArchived).output('blob');
     const result = await mirrorGeneratedDocument({ firebaseUser:currentUser, profile:currentProfile, document:archived, pdfBlob });
     await updateDoc(docRef('generatedDocuments', archived.id), {
       deliveryStatus:result?.emailQueued ? 'email_queued' : 'supabase_archived',
@@ -3910,7 +3920,7 @@ async function renderQGDocuments(){
         <div class="field"><label>Titre personnalisé (optionnel)</label><input class="input" name="title" placeholder="Ex : Main courante hebdomadaire — Site Alpha"></div>
         <button class="btn primary full" type="submit">Générer et archiver</button>
       </form>
-      <div class="setup-box" style="margin-top:14px">V5.8.7 : métadonnées et fichier PDF privé sont archivés dans Supabase. L’envoi e-mail automatique reste désactivé sur le staging.</div>
+      <div class="setup-box" style="margin-top:14px">V5.8.7.1 : métadonnées et fichier PDF privé sont archivés dans Supabase. L’envoi e-mail automatique reste désactivé sur le staging.</div>
     </div>
     <div class="card"><div class="card-title"><div><h2>Documents archivés</h2><p>MCI, missions, rondes, SOS et factures</p></div><div class="field compact-field"><select class="select" id="documents-filter"><option value="">Tous</option><option value="mci">MCI</option><option value="mission">Missions</option><option value="rounds">Rondes</option><option value="alerts">SOS</option><option value="invoice">Factures</option></select></div></div><div id="generated-documents-list" class="list"><div class="empty">Chargement...</div></div></div>
   </section>`;
@@ -3935,7 +3945,7 @@ async function renderQGDocuments(){
     try {
       const archived = await generateAndArchiveDocument(new FormData(e.currentTarget), {sites, missions});
       if (archived) {
-        downloadGeneratedPdf(archived, { silent:true });
+        await downloadGeneratedPdf(archived, { silent:true });
         const documentPush = await spNotifyDocumentArchived(archived);
         await addAudit('generated_document_notified', { documentId:archived.id, type:archived.type, pushStatus:documentPush?.ok?'sent':documentPush?.reason||documentPush?.error||'skipped' });
       }
@@ -4023,7 +4033,7 @@ async function archiveMissionGroup(group){
   if(!mission.id) mission={id:first.missionId||group.key,agentId:first.agentId,agentNom:first.agentNom,siteId:first.siteId,siteNom:first.siteNom,scheduledStart:shift.scheduledStart,scheduledEnd:shift.scheduledEnd};
   const reports=(group.reports||[]).map(compactReport);
   const archived = await archivePdfDocument({type:'mission',title:`Rapport mission — ${mission.siteNom||'Site'} — ${mission.agentNom||'Agent'}`,siteId:mission.siteId||null,siteNom:mission.siteNom||null,missionId:mission.id||null,rowCount:reports.length,payload:{mission:compactMission(mission),shift:compactShift(shift),rows:reports}}, { silent:true });
-  downloadGeneratedPdf(archived, { silent:true });
+  await downloadGeneratedPdf(archived, { silent:true });
   toast('Rapport PDF archivé dans Documents et téléchargé.','success');
 }
 
@@ -4545,7 +4555,7 @@ function spMissionNotificationMessage({ siteName, start, end, count=1, status='c
 }
 
 async function spNotifyQGShiftStarted({shiftId='',agentId='',agentNom='',siteId='',siteName='',missionId='',startedAt=new Date()}={}){
-  if (window.__SENTINELLE_SUPABASE_CORE__) return {ok:false,skipped:true,reason:'V5.8.7 staging : push réel isolé de la production'};
+  if (window.__SENTINELLE_SUPABASE_CORE__) return {ok:false,skipped:true,reason:'V5.8.7.1 staging : push réel isolé de la production'};
   if(!pushIsConfigured()||!pushWorkerIsConfigured()) return {ok:false,skipped:true,reason:'Push non configuré'};
   if(!currentUser||!shiftId) return {ok:false,skipped:true,reason:'Prise de poste incomplète'};
   try{
@@ -4658,7 +4668,7 @@ function renderPushSetup(){
         <p class="muted" style="font-size:12px;margin-top:10px">La fenêtre système ne peut apparaître qu’après un clic manuel. Si elle a déjà été refusée, il faut réactiver les notifications dans les réglages de l’iPhone.</p>
       </div>
       <div class="card">
-        <div class="card-title"><div><h2>Diagnostic</h2><p>Contrôle de la configuration push.</p></div></div><div class="setup-box">STAGING V5.8.7 : la fonction Supabase Auth <strong>send-push</strong> est prête, mais OneSignal live reste désactivé pour protéger les abonnements production.</div>
+        <div class="card-title"><div><h2>Diagnostic</h2><p>Contrôle de la configuration push.</p></div></div><div class="setup-box">STAGING V5.8.7.1 : la fonction Supabase Auth <strong>send-push</strong> est prête, mais OneSignal live reste désactivé pour protéger les abonnements production.</div>
         <div class="list">
           <div class="item"><div class="item-main"><div class="item-title">Compte connecté</div><div class="item-meta">${safe(currentProfile?.prenom || '')} ${safe(currentProfile?.nom || '')} · ${safe(currentProfile?.role || '')}</div></div></div>
           <div class="item"><div class="item-main"><div class="item-title">OneSignal</div><div class="item-meta">${safe(appId || 'Non configuré')}</div></div></div>
@@ -5463,10 +5473,42 @@ function pdfDrawTable(doc, headers, rows, widths, y, rowMapper){
 }
 
 function reportHasPhoto(report){
+  return Boolean(report?.photoUrl || report?.photoStoragePath || report?.photoAvailable);
+}
+function reportHasEmbeddablePdfPhoto(report){
   return Boolean(report?.photoUrl && String(report.photoUrl).startsWith('data:image/'));
 }
 function reportPhotoLabel(report){
   return reportHasPhoto(report) ? 'Photo jointe' : '—';
+}
+async function imageUrlToDataUrl(url){
+  const value=String(url||'');
+  if(!value || value.startsWith('data:image/')) return value;
+  const response=await fetch(value,{cache:'no-store'});
+  if(!response.ok) throw new Error(`Photo indisponible (${response.status})`);
+  const blob=await response.blob();
+  return await new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onload=()=>resolve(String(reader.result||''));
+    reader.onerror=()=>reject(new Error('Conversion de la photo impossible.'));
+    reader.readAsDataURL(blob);
+  });
+}
+async function prepareGeneratedDocumentPhotos(d){
+  const p=d?.payload||{};
+  const rows=Array.isArray(p.rows)?p.rows:[];
+  if(!rows.length) return d;
+  const preparedRows=await Promise.all(rows.map(async row=>{
+    if(!row?.photoUrl || String(row.photoUrl).startsWith('data:image/')) return row;
+    try { return {...row,photoUrl:await imageUrlToDataUrl(row.photoUrl)}; }
+    catch(error){ console.warn('Photo PDF non convertie',error); return row; }
+  }));
+  const byId=new Map(preparedRows.map(row=>[String(row.id||''),row]));
+  const timelineRows=Array.isArray(p.timelineRows)?p.timelineRows.map(row=>{
+    const hit=byId.get(String(row?.id||''));
+    return hit ? {...row,photoUrl:hit.photoUrl,photoAvailable:hit.photoAvailable,photoStorageBucket:hit.photoStorageBucket,photoStoragePath:hit.photoStoragePath} : row;
+  }):p.timelineRows;
+  return {...d,payload:{...p,rows:preparedRows,...(timelineRows?{timelineRows}:{})}};
 }
 function pdfImageFormat(dataUrl){
   return String(dataUrl||'').startsWith('data:image/png') ? 'PNG' : 'JPEG';
@@ -5486,7 +5528,7 @@ function pdfPhotoMetaLines(report, index){
 }
 function pdfDrawPhotoAnnexes(doc, reports){
   const C = AZZERA_DOC_BRAND;
-  const photos = (reports||[]).filter(reportHasPhoto);
+  const photos = (reports||[]).filter(reportHasEmbeddablePdfPhoto);
   if(!photos.length) return;
   photos.forEach((report,index)=>{
     doc.addPage();
