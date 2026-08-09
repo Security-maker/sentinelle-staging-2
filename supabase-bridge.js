@@ -1,36 +1,17 @@
 import { supabaseConfig } from './supabase-config.js';
-
-let clientPromise = null;
+import { getSupabaseClient } from './supabase-compat.js?v=587';
 
 function isConfigured(){
   return Boolean(
     supabaseConfig.enabled &&
-    ['dual','supabase'].includes(supabaseConfig.mode) &&
-    supabaseConfig.url && !String(supabaseConfig.url).includes('REMPLACE_MOI') &&
-    supabaseConfig.publishableKey && !String(supabaseConfig.publishableKey).includes('REMPLACE_MOI') &&
-    supabaseConfig.organizationId && !String(supabaseConfig.organizationId).includes('REMPLACE_MOI')
+    supabaseConfig.mode === 'supabase' &&
+    supabaseConfig.url &&
+    supabaseConfig.publishableKey &&
+    supabaseConfig.organizationId
   );
 }
 
-export function supabaseBridgeEnabled(){
-  return isConfigured();
-}
-
-async function getClient(firebaseUser){
-  if (!isConfigured()) return null;
-  if (!clientPromise) {
-    clientPromise = import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm')
-      .then(({ createClient }) => createClient(
-        supabaseConfig.url,
-        supabaseConfig.publishableKey,
-        {
-          accessToken: async () => firebaseUser ? await firebaseUser.getIdToken(false) : null,
-          auth: { persistSession:false, autoRefreshToken:false, detectSessionInUrl:false }
-        }
-      ));
-  }
-  return clientPromise;
-}
+export function supabaseBridgeEnabled(){ return isConfigured(); }
 
 function slug(value){
   return String(value || 'document')
@@ -39,15 +20,15 @@ function slug(value){
 }
 
 export async function mirrorGeneratedDocument({ firebaseUser, profile, document, pdfBlob }){
-  const client = await getClient(firebaseUser);
-  if (!client) return { skipped:true };
-  if (!(pdfBlob instanceof Blob)) throw new Error('PDF absent pour la passerelle Supabase.');
-
+  if (!isConfigured()) return { skipped:true };
+  if (!(pdfBlob instanceof Blob)) throw new Error('PDF absent pour Supabase Storage.');
+  const client = getSupabaseClient();
   const organizationId = supabaseConfig.organizationId;
+  const ownerId = String(firebaseUser?.uid || profile?.uid || 'qg');
   const siteId = String(document.siteId || 'sans-site');
   const missionId = String(document.missionId || document.id || 'sans-mission');
   const filename = `${slug(document.title || document.id)}.pdf`;
-  const storagePath = `${organizationId}/${slug(siteId)}/${slug(missionId)}/${document.id}-${filename}`;
+  const storagePath = `${organizationId}/${slug(ownerId)}/${slug(siteId)}/${slug(missionId)}/${document.id}-${filename}`;
 
   const upload = await client.storage
     .from(supabaseConfig.reportBucket)
@@ -66,7 +47,8 @@ export async function mirrorGeneratedDocument({ firebaseUser, profile, document,
     storage_path: storagePath,
     payload: document.payload || {},
     status: 'active',
-    created_by_external_uid: firebaseUser?.uid || profile?.uid || null
+    created_by_external_uid: ownerId,
+    delivery_status: 'supabase_archived'
   };
 
   const { data, error } = await client

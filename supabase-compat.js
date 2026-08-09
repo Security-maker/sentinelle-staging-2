@@ -16,7 +16,7 @@ const supabase = createClient(stagingConfig.supabaseUrl, stagingConfig.supabaseP
     persistSession: true,
     autoRefreshToken: true,
     detectSessionInUrl: true,
-    storageKey: 'sentinelle-pro-staging-v586-auth'
+    storageKey: 'sentinelle-pro-staging-v587-auth'
   }
 });
 
@@ -97,6 +97,118 @@ function randomId(){
 }
 function currentExternalUid(){ return compatUserCache?.uid || profileCache?.external_uid || null; }
 
+const signedUrlCache = new Map();
+function mediaSafeSegment(value){
+  return String(value || 'inconnu').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .replace(/[^a-z0-9_-]+/gi,'-').replace(/^-+|-+$/g,'').toLowerCase() || 'inconnu';
+}
+function isImageDataUrl(value){ return typeof value === 'string' && /^data:image\/[a-z0-9.+-]+;base64,/i.test(value); }
+function dataUrlToBlob(value){
+  const match=String(value||'').match(/^data:([^;]+);base64,(.+)$/s);
+  if(!match) throw new Error('Image encodée invalide.');
+  const binary=atob(match[2]);
+  const bytes=new Uint8Array(binary.length);
+  for(let i=0;i<binary.length;i++) bytes[i]=binary.charCodeAt(i);
+  return new Blob([bytes],{type:match[1]||'image/jpeg'});
+}
+function extensionForMime(mime){
+  const m=String(mime||'').toLowerCase();
+  if(m.includes('png')) return 'png';
+  if(m.includes('webp')) return 'webp';
+  return 'jpg';
+}
+async function uploadPrivateImage({owner,id,kind,dataUrl}){
+  if(!isImageDataUrl(dataUrl)) return null;
+  const blob=dataUrlToBlob(dataUrl);
+  const ext=extensionForMime(blob.type);
+  const path=`${stagingConfig.organizationId}/${mediaSafeSegment(owner)}/${mediaSafeSegment(kind)}/${mediaSafeSegment(id)}.${ext}`;
+  const {error}=await supabase.storage.from(stagingConfig.reportPhotoBucket||'report-photos')
+    .upload(path,blob,{contentType:blob.type||'image/jpeg',upsert:true,cacheControl:'3600'});
+  if(error) throw error;
+  return {bucket:stagingConfig.reportPhotoBucket||'report-photos',path,mimeType:blob.type,size:blob.size};
+}
+async function signedPrivateUrl(bucket,path,expiresIn=3600){
+  if(!bucket||!path) return '';
+  const key=`${bucket}:${path}`;
+  const cached=signedUrlCache.get(key);
+  if(cached && cached.expiresAt>Date.now()+60000) return cached.url;
+  const {data,error}=await supabase.storage.from(bucket).createSignedUrl(path,expiresIn);
+  if(error) throw error;
+  const url=String(data?.signedUrl||'');
+  if(url) signedUrlCache.set(key,{url,expiresAt:Date.now()+Math.max(60,expiresIn-60)*1000});
+  return url;
+}
+async function removePrivateObject(bucket,path){
+  if(!bucket||!path) return;
+  const {error}=await supabase.storage.from(bucket).remove([path]);
+  if(error) throw error;
+  signedUrlCache.delete(`${bucket}:${path}`);
+}
+async function prepareCoreMedia(path,id,data,existing){
+  const incoming=normalizeDataObject(data);
+  if(path==='reports' && isImageDataUrl(incoming.photoUrl)){
+    const owner=incoming.agentId||existing?.firebase_agent_uid||currentExternalUid();
+    const uploaded=await uploadPrivateImage({owner,id,kind:'reports',dataUrl:incoming.photoUrl});
+    incoming.photoUrl=null;
+    incoming.photoAvailable=true;
+    incoming.photoStorageBucket=uploaded.bucket;
+    incoming.photoStoragePath=uploaded.path;
+    incoming.photoMimeType=incoming.photoMimeType||uploaded.mimeType;
+    incoming.photoBytes=Number(incoming.photoBytes||uploaded.size||0);
+  }
+  if(path==='users' && Object.prototype.hasOwnProperty.call(incoming,'badgePhotoDataUrl')){
+    const currentPayload=existing?.firebase_payload||{};
+    if(isImageDataUrl(incoming.badgePhotoDataUrl)){
+      const uploaded=await uploadPrivateImage({owner:id,id:'profile',kind:'badge',dataUrl:incoming.badgePhotoDataUrl});
+      incoming.badgePhotoDataUrl=null;
+      incoming.badgePhotoStorageBucket=uploaded.bucket;
+      incoming.badgePhotoStoragePath=uploaded.path;
+    }else if(incoming.badgePhotoDataUrl===''){
+      const oldBucket=currentPayload.badgePhotoStorageBucket;
+      const oldPath=currentPayload.badgePhotoStoragePath;
+      if(oldBucket&&oldPath) await removePrivateObject(oldBucket,oldPath).catch(()=>{});
+      incoming.badgePhotoStorageBucket=null;
+      incoming.badgePhotoStoragePath=null;
+    }
+  }
+  return incoming;
+}
+async function hydrateDecodedMedia(path,row,decoded){
+  if(!decoded) return decoded;
+  if(path==='reports' && row?.photo_bucket && row?.photo_path){
+    decoded.photoStorageBucket=row.photo_bucket;
+    decoded.photoStoragePath=row.photo_path;
+    decoded.photoUrl=await signedPrivateUrl(row.photo_bucket,row.photo_path).catch(()=>decoded.photoUrl||'');
+    decoded.photoAvailable=Boolean(decoded.photoUrl||row.photo_path);
+  }
+  if(path==='users'){
+    const bucket=decoded.badgePhotoStorageBucket;
+    const mediaPath=decoded.badgePhotoStoragePath;
+    if(bucket&&mediaPath) decoded.badgePhotoDataUrl=await signedPrivateUrl(bucket,mediaPath).catch(()=>decoded.badgePhotoDataUrl||'');
+  }
+  return decoded;
+}
+async function prepareGenericMedia(path,id,data,existingPayload={}){
+  const combined=normalizeDataObject(data);
+  if(path==='shiftProofs' && isImageDataUrl(combined.imageDataUrl)){
+    const owner=combined.agentId||existingPayload.agentId||currentExternalUid();
+    const uploaded=await uploadPrivateImage({owner,id,kind:'shift-proofs',dataUrl:combined.imageDataUrl});
+    combined.imageDataUrl=null;
+    combined.storageBucket=uploaded.bucket;
+    combined.storagePath=uploaded.path;
+    combined.mimeType=combined.mimeType||uploaded.mimeType;
+    combined.bytes=Number(combined.bytes||uploaded.size||0);
+  }
+  return combined;
+}
+async function hydrateGenericMedia(path,payload){
+  const out=deepClone(payload||{});
+  if(path==='shiftProofs' && out.storageBucket&&out.storagePath){
+    out.imageDataUrl=await signedPrivateUrl(out.storageBucket,out.storagePath).catch(()=>out.imageDataUrl||'');
+  }
+  return out;
+}
+
 async function loadCompatUser(user, session=null){
   if (!user) { compatUserCache=null; profileCache=null; return null; }
   const { data:profile, error } = await supabase.from('profiles')
@@ -123,9 +235,9 @@ async function loadCompatUser(user, session=null){
   return compatUserCache;
 }
 
-export function initializeApp(){ return { kind:'supabase-staging-v586' }; }
+export function initializeApp(){ return { kind:'supabase-staging-v587' }; }
 export function deleteApp(){ return Promise.resolve(); }
-export function getAuth(){ return { kind:'supabase-auth-v586' }; }
+export function getAuth(){ return { kind:'supabase-auth-v587' }; }
 export const browserLocalPersistence = 'supabase-local';
 export async function setPersistence(){ return true; }
 export async function signInWithEmailAndPassword(_auth,email,password){
@@ -134,7 +246,7 @@ export async function signInWithEmailAndPassword(_auth,email,password){
   return { user:await loadCompatUser(data.user,data.session) };
 }
 export async function createUserWithEmailAndPassword(){
-  throw new Error('V5.8.6 staging : la création sécurisée de comptes Supabase depuis le QG sera branchée via Edge Function en V5.8.7.');
+  throw new Error('Utilise la fonction Edge admin-manage-user de Sentinelle Pro.');
 }
 export async function signOut(){
   compatUserCache=null; profileCache=null;
@@ -163,7 +275,7 @@ export function onAuthStateChanged(_auth, callback){
   return ()=>{ active=false; subscription?.unsubscribe?.(); };
 }
 
-export function initializeFirestore(){ return { kind:'supabase-db-v586' }; }
+export function initializeFirestore(){ return { kind:'supabase-db-v587' }; }
 export function persistentLocalCache(){ return null; }
 export function persistentMultipleTabManager(){ return null; }
 
@@ -240,22 +352,22 @@ async function readRows(path){
   if(cfg){
     const {data,error}=await supabase.from(cfg.table).select('*');
     if(error) throw error;
-    return (data||[]).map(row=>({id:idForCore(path,row),data:decodeCore(path,row)}));
+    return Promise.all((data||[]).map(async row=>({id:idForCore(path,row),data:await hydrateDecodedMedia(path,row,decodeCore(path,row))})));
   }
   const {data,error}=await supabase.from('compat_records').select('external_id,payload').eq('collection_name',path);
   if(error) throw error;
-  return (data||[]).map(row=>({id:String(row.external_id),data:revive(row.payload||{})}));
+  return Promise.all((data||[]).map(async row=>({id:String(row.external_id),data:await hydrateGenericMedia(path,revive(row.payload||{}))})));
 }
 async function readOne(path,id){
   const cfg=coreFor(path);
   if(cfg){
     const {data,error}=await supabase.from(cfg.table).select('*').eq(cfg.id,id).maybeSingle();
     if(error) throw error;
-    return data?decodeCore(path,data):null;
+    return data?await hydrateDecodedMedia(path,data,decodeCore(path,data)):null;
   }
   const {data,error}=await supabase.from('compat_records').select('payload').eq('collection_name',path).eq('external_id',id).maybeSingle();
   if(error) throw error;
-  return data?revive(data.payload||{}):null;
+  return data?await hydrateGenericMedia(path,revive(data.payload||{})):null;
 }
 
 function comparable(value){
@@ -342,8 +454,8 @@ async function buildCoreRecord(path,id,data,{merge=false}={}){
   if(path==='sites') return { organization_id:org,firebase_id:id,name:combined.name||combined.siteNom||id,address:combined.address||null,client_name:combined.clientName||null,report_email:combined.reportEmail||combined.clientEmail||combined.billingEmail||null,active:combined.isActive!==false,payload,updated_at:new Date().toISOString() };
   if(path==='missions') return { organization_id:org,firebase_id:id,firebase_site_id:combined.siteId||null,firebase_agent_uid:combined.agentId||null,status:combined.status||null,scheduled_start:toIso(combined.scheduledStart),scheduled_end:toIso(combined.scheduledEnd),actual_start:toIso(combined.actualStart),actual_end:toIso(combined.actualEnd),payload,updated_at:new Date().toISOString() };
   if(path==='shifts') return { organization_id:org,firebase_id:id,firebase_mission_id:combined.missionId||null,firebase_site_id:combined.siteId||null,firebase_agent_uid:combined.agentId||null,status:combined.status||null,started_at:toIso(combined.startTime),completed_at:toIso(combined.completedAt),payload,updated_at:new Date().toISOString() };
-  if(path==='reports') return { organization_id:org,firebase_id:id,firebase_mission_id:combined.missionId||null,firebase_shift_id:combined.shiftId||null,firebase_site_id:combined.siteId||null,firebase_agent_uid:combined.agentId||null,occurred_at:toIso(combined.occurredAt||combined.createdAt||combined.photoCapturedAt)||new Date().toISOString(),category:combined.category||null,severity:combined.severity||null,message:combined.message||null,photo_bucket:existing?.photo_bucket||null,photo_path:existing?.photo_path||null,payload,updated_at:new Date().toISOString() };
-  if(path==='generatedDocuments') return { organization_id:org,firebase_id:id,firebase_site_id:combined.siteId||null,firebase_mission_id:combined.missionId||null,type:combined.type||'mission',title:combined.title||'Document Sentinelle',row_count:Number(combined.rowCount||0),storage_bucket:'main-courantes',storage_path:existing?.storage_path||`${org}/v586-metadata/${id}.pdf`,payload:plain(combined.payload||{}),status:combined.status||'active',delivery_status:combined.deliveryStatus||'v586_metadata_only',created_by_external_uid:combined.createdBy||currentExternalUid(),updated_at:new Date().toISOString() };
+  if(path==='reports') return { organization_id:org,firebase_id:id,firebase_mission_id:combined.missionId||null,firebase_shift_id:combined.shiftId||null,firebase_site_id:combined.siteId||null,firebase_agent_uid:combined.agentId||null,occurred_at:toIso(combined.occurredAt||combined.createdAt||combined.photoCapturedAt)||new Date().toISOString(),category:combined.category||null,severity:combined.severity||null,message:combined.message||null,photo_bucket:combined.photoStorageBucket||existing?.photo_bucket||null,photo_path:combined.photoStoragePath||existing?.photo_path||null,payload,updated_at:new Date().toISOString() };
+  if(path==='generatedDocuments') return { organization_id:org,firebase_id:id,firebase_site_id:combined.siteId||null,firebase_mission_id:combined.missionId||null,type:combined.type||'mission',title:combined.title||'Document Sentinelle',row_count:Number(combined.rowCount||0),storage_bucket:'main-courantes',storage_path:existing?.storage_path||`${org}/v587-metadata/${id}.pdf`,payload:plain(combined.payload||{}),status:combined.status||'active',delivery_status:combined.deliveryStatus||'v587_metadata_only',created_by_external_uid:combined.createdBy||currentExternalUid(),updated_at:new Date().toISOString() };
   throw new Error(`Collection core non prise en charge : ${path}`);
 }
 async function writeCore(path,id,data,{merge=false,insertOnly=false}={}){
@@ -357,7 +469,8 @@ async function writeCore(path,id,data,{merge=false,insertOnly=false}={}){
     return makeDoc(path,String(created.id));
   }
   const existing=insertOnly?null:await existingCoreRow(path,id);
-  const record=await buildCoreRecord(path,id,data,{merge:Boolean(existing)||merge});
+  const prepared=await prepareCoreMedia(path,id,data,existing);
+  const record=await buildCoreRecord(path,id,prepared,{merge:Boolean(existing)||merge});
   let result;
   if(existing) result=await supabase.from(cfg.table).update(record).eq(cfg.id,id).select(cfg.id).maybeSingle();
   else result=await supabase.from(cfg.table).insert(record).select(cfg.id).single();
@@ -369,8 +482,10 @@ function ownerFor(path,payload){
   return payload.agentId||payload.userId||payload.createdBy||(first==='planningAcknowledgements'?String(path).split('/')[1]:null)||currentExternalUid();
 }
 async function writeGeneric(path,id,data,{merge=false}={}){
-  let combined=normalizeDataObject(data);
-  if(merge){ const prev=await readOne(path,id); combined=deepMerge(prev||{},combined); }
+  const prev=merge?await readOne(path,id):null;
+  const prepared=await prepareGenericMedia(path,id,data,prev||{});
+  let combined=prepared;
+  if(merge) combined=deepMerge(prev||{},prepared);
   const row={organization_id:stagingConfig.organizationId,collection_name:path,external_id:id,owner_external_uid:ownerFor(path,combined),payload:plain(combined),updated_at:new Date().toISOString()};
   const {data:existing,error:readError}=await supabase.from('compat_records').select('id').eq('collection_name',path).eq('external_id',id).maybeSingle();
   if(readError) throw readError;
@@ -398,9 +513,22 @@ export async function updateDoc(ref,data){
 export async function deleteDoc(ref){
   const cfg=coreFor(ref.path);
   if(cfg){
+    if(ref.path==='reports'){
+      const existing=await existingCoreRow('reports',ref.id).catch(()=>null);
+      if(existing?.photo_bucket&&existing?.photo_path) await removePrivateObject(existing.photo_bucket,existing.photo_path).catch(()=>{});
+    }
+    if(ref.path==='users'){
+      const existing=await existingCoreRow('users',ref.id).catch(()=>null);
+      const payload=existing?.firebase_payload||{};
+      if(payload.badgePhotoStorageBucket&&payload.badgePhotoStoragePath) await removePrivateObject(payload.badgePhotoStorageBucket,payload.badgePhotoStoragePath).catch(()=>{});
+    }
     const {error}=await supabase.from(cfg.table).delete().eq(cfg.id,ref.id);
     if(error) throw error;
     return;
+  }
+  if(ref.path==='shiftProofs'){
+    const existing=await readOne(ref.path,ref.id).catch(()=>null);
+    if(existing?.storageBucket&&existing?.storagePath) await removePrivateObject(existing.storageBucket,existing.storagePath).catch(()=>{});
   }
   const {error}=await supabase.from('compat_records').delete().eq('collection_name',ref.path).eq('external_id',ref.id);
   if(error) throw error;

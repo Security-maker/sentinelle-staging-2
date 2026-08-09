@@ -1,12 +1,12 @@
-const CACHE_NAME = 'sentinelle-pro-staging-v5-8-6-supabase-core';
-const CDN_CACHE_NAME = 'sentinelle-staging-cdn-v5-8-6';
+const CACHE_NAME = 'sentinelle-pro-staging-v5-8-7-supabase-storage';
+const CDN_CACHE_NAME = 'sentinelle-staging-cdn-v5-8-7';
 const APP_SHELL = [
   './',
   './index.html',
-  './style.css?v=586',
-  './app.js?v=586',
+  './style.css?v=587',
+  './app.js?v=587',
   './sentinelle-config.js',
-  './supabase-compat.js?v=586',
+  './supabase-compat.js?v=587',
   './supabase-config.js',
   './supabase-bridge.js',
   './manifest.json',

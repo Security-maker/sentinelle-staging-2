@@ -4,8 +4,8 @@ import {
   initializeApp, deleteApp, getAuth, setPersistence, browserLocalPersistence, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, onAuthStateChanged, initializeFirestore, persistentLocalCache,
   persistentMultipleTabManager, collection, doc, getDoc, getDocs, addDoc, setDoc, updateDoc, query, where,
-  orderBy, limit, onSnapshot, serverTimestamp, Timestamp, runTransaction, deleteDoc, writeBatch, supabaseRuntimeConfigured
-} from './supabase-compat.js?v=586';
+  orderBy, limit, onSnapshot, serverTimestamp, Timestamp, runTransaction, deleteDoc, writeBatch, supabaseRuntimeConfigured, getSupabaseClient
+} from './supabase-compat.js?v=587';
 
 const $app = document.querySelector('#app');
 const $toast = document.querySelector('#toast-root');
@@ -16,7 +16,7 @@ window.__SENTINELLE_MODULE_LOADED__ = true;
 let fbApp = null;
 let auth = null;
 let db = null;
-let storage = null; // V5.8.6 staging : Storage finalisé en V5.8.7
+let storage = null; // V5.8.7 : médias et PDF utilisent Supabase Storage via la couche compat.
 let currentUser = null;
 let currentProfile = null;
 let currentRoute = 'home';
@@ -357,7 +357,7 @@ function boot(){
     }
     retryPendingSupabaseDeliveries().catch(error => console.warn('Relance Supabase impossible', error));
   });
-  window.addEventListener('offline', () => toast('Mode hors ligne V5.8.6 — les écritures Supabase sont suspendues jusqu’au retour du réseau', 'warning'));
+  window.addEventListener('offline', () => toast('Mode hors ligne V5.8.7 — les écritures Supabase sont suspendues jusqu’au retour du réseau', 'warning'));
 
   if (!isConfigured()) return renderSetupMissing();
   try {
@@ -367,7 +367,7 @@ function boot(){
     db = initializeFirestore(fbApp, {
       localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
     });
-    storage = null; // Storage volontairement désactivé pour rester compatible Spark
+    storage = getSupabaseClient().storage;
   } catch (error) {
     console.error(error);
     return renderFatal('Configuration Supabase staging invalide', error.message);
@@ -535,7 +535,7 @@ function renderMissingProfile(user){
       <img src="assets/logo.png" class="login-logo"><h1>Profil non configuré</h1><p class="subtitle">Profil Supabase requis</p>
       <div class="setup-box">Le compte existe dans Supabase Auth, mais aucun profil métier relié n’est visible dans public.profiles.</div>
       <div class="field"><label>UUID Supabase Auth</label><input class="input mono" readonly value="${safe(user.uid)}"></div>
-      <div class="card compact"><div class="item-meta">Relie auth.users.id à public.profiles.auth_user_id puis conserve external_uid pendant la transition V5.8.6.</div></div>
+      <div class="card compact"><div class="item-meta">Relie auth.users.id à public.profiles.auth_user_id puis conserve external_uid pendant la transition V5.8.7.</div></div>
       <div class="divider"></div><button class="btn full" data-action="logout">Déconnexion</button>
     </section></div>`);
 }
@@ -975,7 +975,7 @@ async function renderAgentHome(){
     </section>
     <section class="card offline-ready-card ${navigator.onLine?'':'offline-active'}" style="margin-top:16px">
       <div class="card-title"><div><h2>Mode hors ligne</h2><p id="offline-ready-status">${safe(offlineReadyText())}</p></div>${navigator.onLine?'<button class="btn small" id="offline-sync-now">Synchroniser maintenant</button>':'<span class="pill orange">Hors ligne</span>'}</div>
-      <div class="setup-box ${navigator.onLine?'':'warning-copy'}">${navigator.onLine?'Cache local de confort préparé. Le hors-ligne complet Supabase sera validé en V5.8.7.':'V5.8.6 staging : les écritures Supabase ne sont pas garanties hors ligne. Une alerte PTI hors ligne ne peut pas prévenir le QG immédiatement : appelle le QG ou le 112.'}</div>
+      <div class="setup-box ${navigator.onLine?'':'warning-copy'}">${navigator.onLine?'Cache local de confort préparé. Le hors-ligne complet Supabase reste à valider avant la bascule production.':'V5.8.7 staging : les écritures Supabase ne sont pas encore garanties hors ligne. Une alerte PTI hors ligne ne peut pas prévenir le QG immédiatement : appelle le QG ou le 112.'}</div>
     </section>
     <section class="card" style="margin-top:16px">
       <div class="card-title"><div><h2>${isWorking?'Poste en cours':'Prise de poste'}</h2><p>${isWorking?'Résumé, relève et clôture':'Mission planifiée ou prise de poste libre'}</p></div></div>
@@ -1157,7 +1157,7 @@ async function takeShift(site, mission=null, checkInPhoto=null){
       });
     } catch(proofError) {
       await deleteDoc(docRef('shifts', shiftDoc.id)).catch(()=>{});
-      throw new Error('La preuve photo n’a pas pu être enregistrée. Vérifie les RLS V5.8.6 puis réessaie.');
+      throw new Error('La preuve photo n’a pas pu être enregistrée dans Supabase Storage. Vérifie les RLS V5.8.7 puis réessaie.');
     }
     await addDoc(collectionRef('reports'), {
       agentId:currentUser.uid, agentNom, siteId:site.id, siteNom:site.name, shiftId:shiftDoc.id, missionId:mission?.id || null,
@@ -3220,7 +3220,7 @@ function intelText(result){
 }
 async function runSecurityIntel(city, audience='qg'){
   const workerUrl = getIntelWorkerUrl();
-  if (!workerUrl) throw new Error('Veille désactivée sur le staging V5.8.6 ; reprise en V5.8.7.');
+  if (!workerUrl) throw new Error('Veille externe désactivée sur le staging pendant la migration Supabase.');
   const payload = { city, audience, userRole: currentProfile?.role || 'agent', siteActuel: currentProfile?.siteActuelNom || currentProfile?.siteActuel || null };
   const res = await fetch(workerUrl, { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify(payload) });
   let data = null;
@@ -3374,9 +3374,10 @@ function requestDeleteAgent(user){
   if (!user || user.id === currentUser.uid) return toast('Tu ne peux pas supprimer ton propre compte admin.', 'warning');
   confirmDestructiveAction({
     title:'Supprimer cet agent',
-    message:`Le profil métier de ${user.prenom || ''} ${user.nom || ''} sera supprimé de Supabase et son accès métier sera bloqué. Son compte Supabase Auth doit être supprimé séparément depuis Authentication. Les historiques de missions sont conservés.`,
+    message:`Le profil métier de ${user.prenom || ''} ${user.nom || ''} sera supprimé de Supabase et son accès métier sera bloqué. Son compte Supabase Auth et son profil métier seront supprimés. Les historiques de missions et MCI restent conservés.`,
     onConfirm: async()=>{
       await addAudit('agent_profile_deleted', { uid:user.id, email:user.email || '', nom:`${user.prenom||''} ${user.nom||''}`.trim() });
+      await deleteAuthAccountFromAdmin(user);
       await deleteQueryDocuments(query(collectionRef('pushTokens'), where('userId','==',user.id)), 'pushTokens');
       await deleteDoc(docRef('users', user.id));
       toast('Agent supprimé et accès bloqué.', 'success');
@@ -3423,11 +3424,11 @@ function showAgentForm(u={}){
   const c = badgeCompany(u);
   let pendingBadgePhotoDataUrl = u.badgePhotoDataUrl || u.photoDataUrl || '';
   showModal(isEdit?'Modifier profil':'Créer compte agent', `<form id="agent-form">
-    ${!isEdit ? `<div class="setup-box">V5.8.6 staging : la création Auth depuis le QG est volontairement bloquée. Crée d’abord le compte dans Supabase Authentication, puis relie son profil. L’automatisation sécurisée arrive en V5.8.7.</div>` : ''}
+    ${!isEdit ? `<div class="setup-box">V5.8.7 staging : le compte Supabase Auth et son profil sont créés ensemble par une Edge Function sécurisée. Aucun secret administrateur n’est exposé dans le navigateur.</div>` : ''}
     <div class="invoice-form-section"><h3>Identité et accès</h3><div class="form-grid">
       <div class="field"><label>UID historique / external_uid ${isEdit?'':'(requis après création Supabase Auth)'}</label><input class="input mono" name="uid" value="${safe(u.id || u.uid || '')}" ${isEdit?'readonly':''} placeholder="Conserver l’external_uid du profil métier"></div>
       <div class="field"><label>Email de connexion</label><input class="input" name="email" type="email" value="${safe(u.email || '')}" required></div>
-      ${!isEdit ? `<div class="field"><label>Mot de passe initial</label><input class="input" name="password" type="password" minlength="6" placeholder="Minimum 6 caractères"></div><div class="field"><label>Confirmer mot de passe</label><input class="input" name="passwordConfirm" type="password" minlength="6"></div>` : ''}
+      ${!isEdit ? `<div class="field"><label>Mot de passe initial</label><input class="input" name="password" type="password" minlength="8" placeholder="Minimum 8 caractères"></div><div class="field"><label>Confirmer mot de passe</label><input class="input" name="passwordConfirm" type="password" minlength="8"></div>` : ''}
       <div class="field"><label>Prénom</label><input class="input" name="prenom" value="${safe(u.prenom || '')}" required></div>
       <div class="field"><label>Nom</label><input class="input" name="nom" value="${safe(u.nom || '')}" required></div>
       <div class="field"><label>Téléphone</label><input class="input" name="telephone" value="${safe(u.telephone || '')}"></div>
@@ -3440,7 +3441,7 @@ function showAgentForm(u={}){
     </div></div>
 
     <div class="invoice-form-section agent-card-form-section"><h3>Carte professionnelle employeur</h3>
-      <div class="agent-photo-editor"><div class="agent-photo-preview" id="agent-badge-photo-preview">${pendingBadgePhotoDataUrl?`<img src="${safe(pendingBadgePhotoDataUrl)}" alt="Photo agent">`:`<span>${safe(agentInitials(u))}</span>`}</div><div class="agent-photo-controls"><div class="field"><label>Photo agent</label><input class="input" id="badge-photo-file" type="file" accept="image/*" capture="user"></div><button class="btn small ghost" type="button" id="badge-photo-clear">Retirer la photo</button><p class="muted">Photo compressée dans la fiche de staging. Migration vers Supabase Storage prévue en V5.8.7.</p></div></div>
+      <div class="agent-photo-editor"><div class="agent-photo-preview" id="agent-badge-photo-preview">${pendingBadgePhotoDataUrl?`<img src="${safe(pendingBadgePhotoDataUrl)}" alt="Photo agent">`:`<span>${safe(agentInitials(u))}</span>`}</div><div class="agent-photo-controls"><div class="field"><label>Photo agent</label><input class="input" id="badge-photo-file" type="file" accept="image/*" capture="user"></div><button class="btn small ghost" type="button" id="badge-photo-clear">Retirer la photo</button><p class="muted">Photo compressée puis stockée dans le bucket privé Supabase Storage.</p></div></div>
       <div class="form-grid">
         <div class="field"><label>Date de naissance</label><input class="input" type="date" name="birthDate" value="${safe(u.birthDate || '')}"></div>
         <div class="field"><label>Lieu de naissance</label><input class="input" name="birthPlace" value="${safe(u.birthPlace || '')}" placeholder="Ville, pays"></div>
@@ -3502,9 +3503,9 @@ function showAgentForm(u={}){
     submitBtn.disabled = true;
     try {
       if (!isEdit && !uid) {
-        if (password.length < 6) throw new Error('Mot de passe : minimum 6 caractères.');
+        if (password.length < 8) throw new Error('Mot de passe : minimum 8 caractères.');
         if (password !== passwordConfirm) throw new Error('Les mots de passe ne correspondent pas.');
-        uid = await createAuthAccountFromAdmin(email, password);
+        uid = await createAuthAccountFromAdmin(email, password, { role:String(fd.get('role')||'agent'), prenom:String(fd.get('prenom')||''), nom:String(fd.get('nom')||''), telephone:String(fd.get('telephone')||'') });
       }
       if (!uid) throw new Error('UID historique (external_uid) manquant.');
       await setDoc(docRef('users', uid), {
@@ -3535,8 +3536,23 @@ function showAgentForm(u={}){
   });
 }
 
-async function createAuthAccountFromAdmin(email, password){
-  throw new Error('V5.8.6 staging : crée d’abord le compte dans Supabase → Authentication → Users. La création directe depuis le QG sera sécurisée par Edge Function en V5.8.7.');
+async function createAuthAccountFromAdmin(email, password, metadata={}){
+  const client=getSupabaseClient();
+  const {data,error}=await client.functions.invoke('admin-manage-user',{
+    body:{action:'create',email,password,role:metadata.role||'agent',firstName:metadata.prenom||'',lastName:metadata.nom||'',phone:metadata.telephone||''}
+  });
+  if(error) throw error;
+  if(!data?.ok||!data?.externalUid) throw new Error(data?.error||'Création Supabase Auth non confirmée.');
+  return String(data.externalUid);
+}
+async function deleteAuthAccountFromAdmin(user){
+  const authUserId=String(user?.authUserId||'').trim();
+  if(!authUserId) return {ok:true,skipped:true};
+  const client=getSupabaseClient();
+  const {data,error}=await client.functions.invoke('admin-manage-user',{body:{action:'delete',authUserId}});
+  if(error) throw error;
+  if(!data?.ok) throw new Error(data?.error||'Suppression Supabase Auth non confirmée.');
+  return data;
 }
 
 function renderQGSites(){
@@ -3894,7 +3910,7 @@ async function renderQGDocuments(){
         <div class="field"><label>Titre personnalisé (optionnel)</label><input class="input" name="title" placeholder="Ex : Main courante hebdomadaire — Site Alpha"></div>
         <button class="btn primary full" type="submit">Générer et archiver</button>
       </form>
-      <div class="setup-box" style="margin-top:14px">V5.8.6 : les métadonnées sont archivées dans Supabase. Le fichier PDF privé sera branché sur Supabase Storage en V5.8.7.</div>
+      <div class="setup-box" style="margin-top:14px">V5.8.7 : métadonnées et fichier PDF privé sont archivés dans Supabase. L’envoi e-mail automatique reste désactivé sur le staging.</div>
     </div>
     <div class="card"><div class="card-title"><div><h2>Documents archivés</h2><p>MCI, missions, rondes, SOS et factures</p></div><div class="field compact-field"><select class="select" id="documents-filter"><option value="">Tous</option><option value="mci">MCI</option><option value="mission">Missions</option><option value="rounds">Rondes</option><option value="alerts">SOS</option><option value="invoice">Factures</option></select></div></div><div id="generated-documents-list" class="list"><div class="empty">Chargement...</div></div></div>
   </section>`;
@@ -4069,7 +4085,7 @@ async function renderQGBilling(){
   ['#billing-search','#billing-site','#billing-status'].forEach(selector => document.querySelector(selector)?.addEventListener(selector==='#billing-search'?'input':'change', ()=>renderInvoiceList(qgInvoicesCache)));
   const q = query(collectionRef('invoices'), orderBy('createdAt','desc'), limit(300));
   unsubscribeList.push(onSnapshot(q, snap => { qgInvoicesCache = snap.docs.map(d=>({id:d.id,...d.data()})); renderInvoiceList(qgInvoicesCache); }, error => {
-    console.error(error); document.querySelector('#billing-list').innerHTML = '<div class="empty">Facturation secondaire en transition V5.8.6. Vérifie compat_records et les RLS.</div>';
+    console.error(error); document.querySelector('#billing-list').innerHTML = '<div class="empty">Facturation secondaire en transition Supabase. Vérifie compat_records et les RLS.</div>';
   }));
 }
 function renderInvoiceList(rows){
@@ -4529,7 +4545,7 @@ function spMissionNotificationMessage({ siteName, start, end, count=1, status='c
 }
 
 async function spNotifyQGShiftStarted({shiftId='',agentId='',agentNom='',siteId='',siteName='',missionId='',startedAt=new Date()}={}){
-  if (window.__SENTINELLE_SUPABASE_CORE__) return {ok:false,skipped:true,reason:'V5.8.6 staging : push repris en V5.8.7'};
+  if (window.__SENTINELLE_SUPABASE_CORE__) return {ok:false,skipped:true,reason:'V5.8.7 staging : push réel isolé de la production'};
   if(!pushIsConfigured()||!pushWorkerIsConfigured()) return {ok:false,skipped:true,reason:'Push non configuré'};
   if(!currentUser||!shiftId) return {ok:false,skipped:true,reason:'Prise de poste incomplète'};
   try{
@@ -4642,7 +4658,7 @@ function renderPushSetup(){
         <p class="muted" style="font-size:12px;margin-top:10px">La fenêtre système ne peut apparaître qu’après un clic manuel. Si elle a déjà été refusée, il faut réactiver les notifications dans les réglages de l’iPhone.</p>
       </div>
       <div class="card">
-        <div class="card-title"><div><h2>Diagnostic</h2><p>Contrôle de la configuration push.</p></div></div>
+        <div class="card-title"><div><h2>Diagnostic</h2><p>Contrôle de la configuration push.</p></div></div><div class="setup-box">STAGING V5.8.7 : la fonction Supabase Auth <strong>send-push</strong> est prête, mais OneSignal live reste désactivé pour protéger les abonnements production.</div>
         <div class="list">
           <div class="item"><div class="item-main"><div class="item-title">Compte connecté</div><div class="item-meta">${safe(currentProfile?.prenom || '')} ${safe(currentProfile?.nom || '')} · ${safe(currentProfile?.role || '')}</div></div></div>
           <div class="item"><div class="item-main"><div class="item-title">OneSignal</div><div class="item-meta">${safe(appId || 'Non configuré')}</div></div></div>
@@ -4901,7 +4917,7 @@ async function registerPushNotifications(){
   const originalLabel = 'Demander l’autorisation sur cet appareil';
   try {
     if (!pushIsConfigured()) {
-      return showModal('Notifications à configurer', `<div class="setup-box">OneSignal est volontairement désactivé sur le staging V5.8.6. Réactivation en V5.8.7.</div>`);
+      return showModal('Notifications à configurer', `<div class="setup-box">Le push OneSignal réel est volontairement isolé sur le staging V5.8.7 pour ne pas modifier les abonnements de production. Le backend send-push Supabase Auth est déjà inclus.</div>`);
     }
     if (!('serviceWorker' in navigator)) return toast('Service worker indisponible : notifications impossibles.', 'warning');
     if (typeof Notification === 'undefined') return toast('API Notifications indisponible sur cet appareil.', 'warning');
@@ -5195,7 +5211,7 @@ function userFriendlyError(error, fallback){
   const msg = String(error?.message || '');
   const code = String(error?.code || '');
   if (msg && !msg.includes('FirebaseError')) return msg;
-  if (code.includes('permission-denied')) return 'Permission refusée par Supabase. Vérifie profiles.role et les RLS V5.8.6.';
+  if (code.includes('permission-denied')) return 'Permission refusée par Supabase. Vérifie profiles.role et les RLS V5.8.7.';
   if (code.includes('auth/weak-password')) return 'Mot de passe trop faible : minimum 6 caractères.';
   if (code.includes('auth/invalid-email')) return 'Email invalide.';
   if (code.includes('auth/email-already-in-use')) return 'Cet email existe déjà dans Supabase Auth. Relie son auth.users.id au profil avant de poursuivre.';

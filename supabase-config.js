@@ -1,7 +1,8 @@
-// Sentinelle Pro V5.8.6 — le backend métier passe déjà par supabase-compat.js.
-// Cette ancienne passerelle PDF reste désactivée jusqu'à V5.8.7 (Storage + Brevo).
+// Sentinelle Pro V5.8.7 — Supabase natif.
+// Storage PDF actif. Envoi e-mail automatique volontairement coupé sur STAGING
+// pour éviter d'envoyer des rapports aux destinataires réels pendant les tests.
 export const supabaseConfig = Object.freeze({
-  enabled: false,
+  enabled: true,
   mode: 'supabase',
   url: 'https://ksoyqtsrhtsfbwmxipqz.supabase.co',
   publishableKey: 'sb_publishable_TaSZX6F0nsEecsHPxjZ8hg_c1cZtQuN',
