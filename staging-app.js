@@ -1,26 +1,21 @@
-import { firebaseConfig } from './firebase-config.js';
-import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js';
-import {
-  getAuth,
-  setPersistence,
-  browserSessionPersistence,
-  signInWithEmailAndPassword,
-  signOut,
-  onAuthStateChanged,
-  getIdToken,
-  getIdTokenResult
-} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js';
-import {
-  getFirestore,
-  doc,
-  getDoc
-} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js';
-
 const SUPABASE = Object.freeze({
   url: 'https://ksoyqtsrhtsfbwmxipqz.supabase.co',
   publishableKey: 'sb_publishable_TaSZX6F0nsEecsHPxjZ8hg_c1cZtQuN',
   organizationId: '43b09366-de36-5b44-97cc-d549eb0d4e53',
   projectRef: 'ksoyqtsrhtsfbwmxipqz'
+});
+
+if (!window.supabase?.createClient) {
+  throw new Error('Supabase JS indisponible. Vérifie le chargement du CDN.');
+}
+
+const supabaseClient = window.supabase.createClient(SUPABASE.url, SUPABASE.publishableKey, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true,
+    storageKey: 'sentinelle-pro-staging-v585-auth'
+  }
 });
 
 const EXPECTED_COUNTS = Object.freeze({
@@ -44,7 +39,7 @@ const EXPECTED_COUNTS = Object.freeze({
 
 const TOTAL_EXPECTED = Object.values(EXPECTED_COUNTS).reduce((sum, value) => sum + value, 0);
 const TEST_UID_PREFIX = 'staging-write-test-';
-const BUSINESS_FLOW_STORAGE_KEY = 'sentinelle_staging_business_flow_v584';
+const BUSINESS_FLOW_STORAGE_KEY = 'sentinelle_staging_business_flow_v585';
 const BUSINESS_FLOW_PREFIX = 'staging-flow-';
 
 const $ = (selector) => document.querySelector(selector);
@@ -87,7 +82,8 @@ const flowVerifyButton = $('#flow-verify-button');
 const flowResults = $('#flow-results');
 
 let currentUser = null;
-let currentFirebaseProfile = null;
+let currentProfile = null;
+let currentSession = null;
 let lastAuditSucceeded = false;
 
 function setStatus(element, label, kind = 'neutral') {
@@ -108,11 +104,32 @@ function escapeHtml(value) {
 }
 
 function readableError(error) {
-  const code = String(error?.code || '');
-  if (code.includes('invalid-credential') || code.includes('wrong-password')) return 'Adresse e-mail ou mot de passe incorrect.';
-  if (code.includes('too-many-requests')) return 'Trop de tentatives. Patiente quelques minutes avant de recommencer.';
-  if (code.includes('network-request-failed')) return 'Connexion réseau indisponible.';
+  const code = String(error?.code || error?.status || '').toLowerCase();
+  const message = String(error?.message || error || '').toLowerCase();
+  if (message.includes('invalid login credentials') || message.includes('invalid credentials')) return 'Adresse e-mail ou mot de passe incorrect.';
+  if (message.includes('email not confirmed')) return 'Adresse e-mail non confirmée dans Supabase Auth.';
+  if (message.includes('rate limit') || code.includes('429')) return 'Trop de tentatives. Patiente quelques minutes avant de recommencer.';
+  if (message.includes('failed to fetch') || message.includes('network')) return 'Connexion réseau indisponible.';
   return error?.message || String(error || 'Erreur inconnue');
+}
+
+function parseJwt(token) {
+  try {
+    const base64 = String(token || '').split('.')[1]?.replace(/-/g, '+').replace(/_/g, '/');
+    if (!base64) return {};
+    return JSON.parse(decodeURIComponent(atob(base64).split('').map((c) => `%${(`00${c.charCodeAt(0).toString(16)}`).slice(-2)}`).join('')));
+  } catch (_) {
+    return {};
+  }
+}
+
+async function getAccessToken() {
+  const { data, error } = await supabaseClient.auth.getSession();
+  if (error) throw error;
+  if (!data?.session?.access_token) throw new Error('Session Supabase expirée ou absente.');
+  currentSession = data.session;
+  currentUser = data.session.user;
+  return data.session.access_token;
 }
 
 function supabaseHeaders(token, extra = {}) {
@@ -124,20 +141,14 @@ function supabaseHeaders(token, extra = {}) {
   };
 }
 
-async function loadFirebaseProfile(user) {
-  const snapshot = await getDoc(doc(db, 'users', user.uid));
-  if (!snapshot.exists()) throw new Error('Le compte existe dans Firebase Auth mais aucun profil Firestore users/{uid} n’a été trouvé.');
-  return { uid: user.uid, ...snapshot.data() };
-}
-
-async function readSupabaseProfile(token, uid) {
-  const filter = encodeURIComponent(uid);
-  const response = await fetch(`${SUPABASE.url}/rest/v1/profiles?select=id,external_uid,organization_id,role,active&external_uid=eq.${filter}`, {
+async function readSupabaseProfile(token, authUserId) {
+  const filter = encodeURIComponent(authUserId);
+  const response = await fetch(`${SUPABASE.url}/rest/v1/profiles?select=id,auth_user_id,external_uid,organization_id,role,first_name,last_name,email,active&auth_user_id=eq.${filter}`, {
     method: 'GET', headers: supabaseHeaders(token)
   });
   const payload = await response.json().catch(() => null);
   if (!response.ok) throw new Error(`Profil Supabase inaccessible (${response.status}) : ${JSON.stringify(payload)}`);
-  if (!Array.isArray(payload) || payload.length !== 1) throw new Error(`Nombre de profils Supabase inattendu : ${Array.isArray(payload) ? payload.length : 'réponse invalide'}.`);
+  if (!Array.isArray(payload) || payload.length !== 1) throw new Error(`Compte Supabase Auth non relié à un profil métier unique : ${Array.isArray(payload) ? payload.length : 'réponse invalide'}.`);
   return { status: response.status, profile: payload[0] };
 }
 
@@ -182,12 +193,12 @@ function renderCounts(rows) {
 }
 
 function canRunWriteTest() {
-  const role = String(currentFirebaseProfile?.role || '');
+  const role = String(currentProfile?.role || '');
   return Boolean(currentUser && lastAuditSucceeded && ['admin','superviseur'].includes(role));
 }
 
 function canRunAgentSecurityTest() {
-  const role = String(currentFirebaseProfile?.role || '');
+  const role = String(currentProfile?.role || '');
   return Boolean(currentUser && lastAuditSucceeded && role === 'agent');
 }
 
@@ -198,7 +209,7 @@ function refreshSecurityAvailability() {
   if (!currentUser) {
     setStatus(securityStatus, 'En attente', 'neutral');
     setMessage(securityMessage, 'Connecte un compte agent pour activer ce test.');
-  } else if (String(currentFirebaseProfile?.role || '') !== 'agent') {
+  } else if (String(currentProfile?.role || '') !== 'agent') {
     setStatus(securityStatus, 'Agent requis', 'warning');
     setMessage(securityMessage, 'Cette sonde est volontairement réservée à un compte agent.', 'warning');
   } else if (!lastAuditSucceeded) {
@@ -227,7 +238,7 @@ function clearBusinessFlowState() {
 }
 
 function flowRole() {
-  return String(currentFirebaseProfile?.role || '');
+  return String(currentProfile?.role || '');
 }
 
 function isQGRole() {
@@ -274,7 +285,7 @@ async function refreshBusinessFlowUI() {
 
   flowQGPanel.classList.toggle('hidden', !isQGRole());
   flowAgentPanel.classList.toggle('hidden', role !== 'agent');
-  const ownAgentFlow = Boolean(ready && role === 'agent' && state && state.agentUid === currentUser?.uid);
+  const ownAgentFlow = Boolean(ready && role === 'agent' && state && state.agentAuthUserId === currentUser?.id);
   flowCreateButton.disabled = !(ready && isQGRole() && !state);
   flowVerifyButton.disabled = !(ready && isQGRole() && state);
   flowStartButton.disabled = !(ownAgentFlow && !['active','mci','completed'].includes(String(state.stage || '')));
@@ -294,24 +305,24 @@ async function refreshBusinessFlowUI() {
   }
 
   try {
-    const token = await getIdToken(currentUser, true);
+    const token = await getAccessToken();
     if (isQGRole()) {
       const [{response:agentsResponse,result:agents}, {response:sitesResponse,result:sites}] = await Promise.all([
         supabaseRequest(token, 'profiles', {
-          query:'select=id,external_uid,first_name,last_name,email,role,active&role=eq.agent&active=eq.true&order=last_name.asc'
+          query:'select=id,auth_user_id,external_uid,first_name,last_name,email,role,active&role=eq.agent&active=eq.true&order=last_name.asc'
         }),
         supabaseRequest(token, 'sites', {
           query:'select=id,firebase_id,name,address,active&active=eq.true&order=name.asc'
         })
       ]);
       if (agentsResponse.ok && Array.isArray(agents)) {
-        flowAgentSelect.innerHTML = '<option value="">Choisir un agent</option>' + agents
-          .filter(agent => agent.external_uid)
+        flowAgentSelect.innerHTML = '<option value="">Choisir un agent Supabase Auth</option>' + agents
+          .filter(agent => agent.external_uid && agent.auth_user_id)
           .map(agent => {
             const label = `${agent.first_name || ''} ${agent.last_name || ''}`.trim() || agent.email || agent.external_uid;
-            return `<option value="${escapeHtml(agent.external_uid)}" data-label="${escapeHtml(label)}">${escapeHtml(label)}</option>`;
+            return `<option value="${escapeHtml(agent.auth_user_id)}" data-external-uid="${escapeHtml(agent.external_uid)}" data-label="${escapeHtml(label)}">${escapeHtml(label)}</option>`;
           }).join('');
-        if (state?.agentUid) flowAgentSelect.value = state.agentUid;
+        if (state?.agentAuthUserId) flowAgentSelect.value = state.agentAuthUserId;
       }
       if (sitesResponse.ok && Array.isArray(sites)) {
         flowSiteSelect.innerHTML = '<option value="">Choisir un site</option>' + sites
@@ -324,7 +335,7 @@ async function refreshBusinessFlowUI() {
       setMessage(
         flowMessage,
         state
-          ? `Mission staging ${state.missionFirebaseId}. Passe au compte agent ${state.agentLabel || state.agentUid}, puis reviens QG après la fin de poste.`
+          ? `Mission staging ${state.missionFirebaseId}. Passe au compte agent ${state.agentLabel || state.agentAuthUserId}, puis reviens QG après la fin de poste.`
           : 'Crée une mission temporaire affectée à un agent. Elle n’existe que dans Supabase staging.',
         state ? 'warning' : 'success'
       );
@@ -332,7 +343,7 @@ async function refreshBusinessFlowUI() {
       if (!state) {
         setStatus(flowStatus, 'Mission staging absente', 'warning');
         setMessage(flowMessage, 'Aucune mission de scénario n’a encore été préparée par le QG.', 'warning');
-      } else if (state.agentUid !== currentUser.uid) {
+      } else if (state.agentAuthUserId !== currentUser.id) {
         setStatus(flowStatus, 'Autre agent requis', 'warning');
         setMessage(flowMessage, `Cette mission staging est affectée à ${state.agentLabel || 'un autre agent'}.`, 'warning');
       } else {
@@ -361,9 +372,11 @@ async function refreshBusinessFlowUI() {
 
 async function createBusinessFlowMission() {
   if (!(flowReady() && isQGRole())) return;
-  const agentUid = String(flowAgentSelect.value || '').trim();
+  const agentAuthUserId = String(flowAgentSelect.value || '').trim();
+  const selectedAgent = flowAgentSelect.selectedOptions[0];
+  const agentExternalUid = String(selectedAgent?.dataset?.externalUid || '').trim();
   const siteFirebaseId = String(flowSiteSelect.value || '').trim();
-  if (!agentUid || !siteFirebaseId) {
+  if (!agentAuthUserId || !agentExternalUid || !siteFirebaseId) {
     setStatus(flowStatus, 'Choix requis', 'warning');
     setMessage(flowMessage, 'Choisis un agent et un site avant de créer la mission.', 'warning');
     return;
@@ -380,12 +393,11 @@ async function createBusinessFlowMission() {
   setMessage(flowMessage, 'Création de la mission temporaire dans Supabase staging…');
 
   try {
-    const token = await getIdToken(currentUser, true);
-    const flowId = `v584-${Date.now()}-${crypto.randomUUID().slice(0,8)}`;
+    const token = await getAccessToken();
+    const flowId = `v585-${Date.now()}-${crypto.randomUUID().slice(0,8)}`;
     const missionFirebaseId = `${BUSINESS_FLOW_PREFIX}${flowId}-mission`;
-    const selectedAgent = flowAgentSelect.selectedOptions[0];
     const selectedSite = flowSiteSelect.selectedOptions[0];
-    const agentLabel = selectedAgent?.dataset?.label || selectedAgent?.textContent || agentUid;
+    const agentLabel = selectedAgent?.dataset?.label || selectedAgent?.textContent || agentExternalUid;
     const siteLabel = selectedSite?.dataset?.label || selectedSite?.textContent || siteFirebaseId;
     const now = new Date();
     const end = new Date(now.getTime() + 60 * 60 * 1000);
@@ -395,8 +407,8 @@ async function createBusinessFlowMission() {
       staging_stage:'planned',
       agent_label:agentLabel,
       site_label:siteLabel,
-      created_by:currentUser.uid,
-      source:'sentinelle-staging-business-flow-v584'
+      created_by:currentUser.id,
+      source:'sentinelle-staging-business-flow-v585'
     };
 
     const {response,result} = await supabaseRequest(token, 'missions', {
@@ -405,7 +417,7 @@ async function createBusinessFlowMission() {
         organization_id:SUPABASE.organizationId,
         firebase_id:missionFirebaseId,
         firebase_site_id:siteFirebaseId,
-        firebase_agent_uid:agentUid,
+        firebase_agent_uid:agentExternalUid,
         status:'planned',
         scheduled_start:now.toISOString(),
         scheduled_end:end.toISOString(),
@@ -421,7 +433,8 @@ async function createBusinessFlowMission() {
       flowId,
       missionFirebaseId,
       missionId:result[0].id,
-      agentUid,
+      agentAuthUserId,
+      agentExternalUid,
       agentLabel,
       siteFirebaseId,
       siteLabel,
@@ -461,12 +474,12 @@ async function getOwnFlowMissionAndShift(token, state) {
 
 async function startBusinessFlowShift() {
   const state = loadBusinessFlowState();
-  if (!(flowReady() && flowRole() === 'agent' && state?.agentUid === currentUser.uid)) return;
+  if (!(flowReady() && flowRole() === 'agent' && state?.agentAuthUserId === currentUser.id)) return;
   flowStartButton.disabled = true;
   setStatus(flowStatus, 'Prise de poste', 'warning');
   setMessage(flowMessage, 'Création du shift et du rapport automatique de prise de service…');
   try {
-    const token = await getIdToken(currentUser, true);
+    const token = await getAccessToken();
     const {mission,shift} = await getOwnFlowMissionAndShift(token, state);
     if (mission.status === 'completed') throw new Error('Cette mission staging est déjà terminée.');
     if (shift?.status === 'active') throw new Error('Un shift staging est déjà actif.');
@@ -478,7 +491,7 @@ async function startBusinessFlowShift() {
       staging_flow_id:state.flowId,
       staging_stage:'active',
       isLocked:true,
-      source:'sentinelle-staging-business-flow-v584'
+      source:'sentinelle-staging-business-flow-v585'
     };
     const {response:shiftCreate,result:shiftCreated} = await supabaseRequest(token, 'shifts', {
       method:'POST',
@@ -487,7 +500,7 @@ async function startBusinessFlowShift() {
         firebase_id:shiftFirebaseId,
         firebase_mission_id:state.missionFirebaseId,
         firebase_site_id:state.siteFirebaseId,
-        firebase_agent_uid:currentUser.uid,
+        firebase_agent_uid:currentProfile.external_uid,
         status:'active',
         started_at:now,
         payload:shiftPayload
@@ -507,7 +520,7 @@ async function startBusinessFlowShift() {
         firebase_mission_id:state.missionFirebaseId,
         firebase_shift_id:shiftFirebaseId,
         firebase_site_id:state.siteFirebaseId,
-        firebase_agent_uid:currentUser.uid,
+        firebase_agent_uid:currentProfile.external_uid,
         occurred_at:now,
         category:'Prise de service',
         severity:'Normal',
@@ -557,12 +570,12 @@ async function startBusinessFlowShift() {
 
 async function createBusinessFlowMci() {
   const state = loadBusinessFlowState();
-  if (!(flowReady() && flowRole() === 'agent' && state?.agentUid === currentUser.uid)) return;
+  if (!(flowReady() && flowRole() === 'agent' && state?.agentAuthUserId === currentUser.id)) return;
   flowMciButton.disabled = true;
   setStatus(flowStatus, 'Création MCI', 'warning');
   setMessage(flowMessage, 'Création d’un rapport MCI verrouillé et tentative de modification interdite…');
   try {
-    const token = await getIdToken(currentUser, true);
+    const token = await getAccessToken();
     const {mission,shift} = await getOwnFlowMissionAndShift(token, state);
     if (!shift || shift.status !== 'active') throw new Error('Démarre d’abord la mission staging.');
 
@@ -576,7 +589,7 @@ async function createBusinessFlowMci() {
         firebase_mission_id:state.missionFirebaseId,
         firebase_shift_id:shift.firebase_id,
         firebase_site_id:state.siteFirebaseId,
-        firebase_agent_uid:currentUser.uid,
+        firebase_agent_uid:currentProfile.external_uid,
         occurred_at:now,
         category:'Incident',
         severity:'Important',
@@ -585,7 +598,7 @@ async function createBusinessFlowMci() {
           staging_business_flow:true,
           staging_flow_id:state.flowId,
           isLocked:true,
-          source:'sentinelle-staging-business-flow-v584'
+          source:'sentinelle-staging-business-flow-v585'
         }
       },
       prefer:'return=representation'
@@ -623,12 +636,12 @@ async function createBusinessFlowMci() {
 
 async function endBusinessFlowShift() {
   const state = loadBusinessFlowState();
-  if (!(flowReady() && flowRole() === 'agent' && state?.agentUid === currentUser.uid)) return;
+  if (!(flowReady() && flowRole() === 'agent' && state?.agentAuthUserId === currentUser.id)) return;
   flowEndButton.disabled = true;
   setStatus(flowStatus, 'Fin de poste', 'warning');
   setMessage(flowMessage, 'Création du rapport de fin et clôture du shift + mission…');
   try {
-    const token = await getIdToken(currentUser, true);
+    const token = await getAccessToken();
     const {mission,shift} = await getOwnFlowMissionAndShift(token, state);
     if (!shift || shift.status !== 'active') throw new Error('Aucun shift staging actif à terminer.');
 
@@ -642,7 +655,7 @@ async function endBusinessFlowShift() {
         firebase_mission_id:state.missionFirebaseId,
         firebase_shift_id:shift.firebase_id,
         firebase_site_id:state.siteFirebaseId,
-        firebase_agent_uid:currentUser.uid,
+        firebase_agent_uid:currentProfile.external_uid,
         occurred_at:now,
         category:'Fin de service',
         severity:'Normal',
@@ -709,7 +722,7 @@ async function verifyAndCleanupBusinessFlow() {
   setMessage(flowMessage, 'Contrôle de la mission, du shift et des rapports avant nettoyage…');
 
   try {
-    const token = await getIdToken(currentUser, true);
+    const token = await getAccessToken();
     const [{response:missionResponse,result:missions}, {response:shiftResponse,result:shifts}, {response:reportResponse,result:reports}] = await Promise.all([
       supabaseRequest(token, 'missions', {
         query:`select=id,firebase_id,status,actual_start,actual_end,payload&firebase_id=eq.${encodeURIComponent(state.missionFirebaseId)}`
@@ -743,7 +756,7 @@ async function verifyAndCleanupBusinessFlow() {
       return;
     }
 
-    const {response:cleanupResponse,result:cleanupResult} = await supabaseRequest(token, 'staging_cleanup_business_flow_v584', {
+    const {response:cleanupResponse,result:cleanupResult} = await supabaseRequest(token, 'staging_cleanup_business_flow_v585', {
       method:'POST',
       body:{p_flow_id:state.flowId},
       rpc:true
@@ -777,7 +790,7 @@ function refreshWriteAvailability() {
   if (!currentUser) {
     setStatus(writeStatus, 'En attente', 'neutral');
     setMessage(writeMessage, 'Connecte un compte QG pour activer ce test.');
-  } else if (!['admin','superviseur'].includes(String(currentFirebaseProfile?.role || ''))) {
+  } else if (!['admin','superviseur'].includes(String(currentProfile?.role || ''))) {
     setStatus(writeStatus, 'QG requis', 'warning');
     setMessage(writeMessage, 'Ce test est volontairement bloqué pour les comptes agent.', 'warning');
   } else if (!lastAuditSucceeded) {
@@ -785,35 +798,42 @@ function refreshWriteAvailability() {
     setMessage(writeMessage, 'Lance d’abord le contrôle de lecture Supabase avec ce compte QG.');
   } else {
     setStatus(writeStatus, 'Prêt', 'success');
-    setMessage(writeMessage, 'Le test temporaire peut être lancé. Aucune donnée Firebase ne sera modifiée.', 'success');
+    setMessage(writeMessage, 'Le test temporaire peut être lancé. Aucune donnée de production ne sera modifiée.', 'success');
   }
   refreshSecurityAvailability();
 }
 
 async function runAudit() {
-  if (!currentUser || !currentFirebaseProfile) return;
+  if (!currentUser || !currentProfile) return;
   lastAuditSucceeded = false;
   refreshWriteAvailability();
   auditButton.disabled = true;
   setStatus(auditStatus, 'Contrôle en cours', 'warning');
-  setMessage(auditMessage, 'Renouvellement du jeton Firebase et interrogation de Supabase…');
+  setMessage(auditMessage, 'Vérification du JWT Supabase Auth et interrogation des RLS…');
   summary.classList.add('hidden');
   countsZone.classList.add('hidden');
 
   try {
-    const token = await getIdToken(currentUser, true);
-    const tokenResult = await getIdTokenResult(currentUser);
-    const claimRole = tokenResult.claims?.role ?? null;
-    const { status, profile: supabaseProfile } = await readSupabaseProfile(token, currentUser.uid);
-    const roleMatches = String(supabaseProfile.role || '') === String(currentFirebaseProfile.role || '');
+    const { data: userData, error: userError } = await supabaseClient.auth.getUser();
+    if (userError) throw userError;
+    const verifiedUser = userData?.user;
+    if (!verifiedUser?.id) throw new Error('Supabase Auth ne retourne aucun utilisateur vérifié.');
+
+    const token = await getAccessToken();
+    const jwt = parseJwt(token);
+    const { status, profile: supabaseProfile } = await readSupabaseProfile(token, verifiedUser.id);
+    currentProfile = supabaseProfile;
+
+    const authMatches = verifiedUser.id === currentUser.id && supabaseProfile.auth_user_id === verifiedUser.id;
+    const jwtMatches = jwt.sub === verifiedUser.id && jwt.role === 'authenticated';
     const organizationMatches = supabaseProfile.organization_id === SUPABASE.organizationId;
     const active = supabaseProfile.active === true;
-    const coreSuccess = claimRole === 'authenticated' && status === 200 && roleMatches && organizationMatches && active;
+    const coreSuccess = authMatches && jwtMatches && status === 200 && organizationMatches && active;
 
     renderSummary([
-      { label:'Claim Firebase', value:claimRole || 'absent', good:claimRole === 'authenticated' },
-      { label:'Réponse Supabase', value:`HTTP ${status}`, good:status === 200 },
-      { label:'Rôle métier', value:roleMatches ? safeText(supabaseProfile.role) : 'Différent', good:roleMatches },
+      { label:'Supabase Auth', value:authMatches ? 'Utilisateur vérifié' : 'Incohérent', good:authMatches },
+      { label:'JWT Supabase', value:jwtMatches ? 'authenticated' : safeText(jwt.role || 'absent'), good:jwtMatches },
+      { label:'Rôle métier', value:safeText(supabaseProfile.role), good:['admin','superviseur','agent','client'].includes(String(supabaseProfile.role || '')) },
       { label:'Organisation', value:organizationMatches ? 'Conforme' : 'Différente', good:organizationMatches }
     ]);
 
@@ -824,8 +844,8 @@ async function runAudit() {
 
     lastAuditSucceeded = coreSuccess;
     if (coreSuccess) {
-      setStatus(auditStatus, 'Connexion validée', 'success');
-      setMessage(auditMessage, `Authentification et profil validés. Total visible : ${visibleTotal} ligne(s), référence import : ${TOTAL_EXPECTED}.`, 'success');
+      setStatus(auditStatus, 'Supabase Auth validé', 'success');
+      setMessage(auditMessage, `Connexion Supabase native et profil métier validés. Total visible : ${visibleTotal} ligne(s), référence import : ${TOTAL_EXPECTED}.`, 'success');
     } else {
       setStatus(auditStatus, 'Contrôle à examiner', 'warning');
       setMessage(auditMessage, 'Supabase répond, mais au moins un contrôle essentiel ne correspond pas.', 'warning');
@@ -869,7 +889,7 @@ async function runWriteTest() {
   const externalUid = `${TEST_UID_PREFIX}${Date.now()}-${crypto.randomUUID().slice(0,8)}`;
 
   try {
-    const token = await getIdToken(currentUser, true);
+    const token = await getAccessToken();
     const createPayload = {
       organization_id: SUPABASE.organizationId,
       external_uid: externalUid,
@@ -881,8 +901,8 @@ async function runWriteTest() {
       active: true,
       firebase_payload: {
         staging_write_test: true,
-        created_by: currentUser.uid,
-        source: 'sentinelle-staging-write-test-v584'
+        created_by: currentUser.id,
+        source: 'sentinelle-staging-write-test-v585'
       }
     };
 
@@ -947,7 +967,7 @@ async function runWriteTest() {
     // Nettoyage de secours uniquement si le profil créé est bien notre ligne temporaire.
     if (created?.id && String(created.external_uid || '').startsWith(TEST_UID_PREFIX)) {
       try {
-        const token = await getIdToken(currentUser, true);
+        const token = await getAccessToken();
         const cleanup = await fetch(`${SUPABASE.url}/rest/v1/profiles?id=eq.${encodeURIComponent(created.id)}&external_uid=eq.${encodeURIComponent(created.external_uid)}`, {
           method:'DELETE', headers:supabaseHeaders(token, { Prefer:'return=minimal' })
         });
@@ -983,8 +1003,8 @@ async function runAgentSecurityTest() {
   setMessage(securityMessage, 'Exécution de la sonde RLS directement dans Supabase…');
 
   try {
-    const token = await getIdToken(currentUser, true);
-    const response = await fetch(`${SUPABASE.url}/rest/v1/rpc/staging_probe_agent_rls_v584`, {
+    const token = await getAccessToken();
+    const response = await fetch(`${SUPABASE.url}/rest/v1/rpc/staging_probe_agent_rls_v585`, {
       method:'POST',
       headers:supabaseHeaders(token, { 'Content-Type':'application/json' }),
       body:'{}'
@@ -1026,30 +1046,37 @@ async function runAgentSecurityTest() {
   }
 }
 
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-
-setPersistence(auth, browserSessionPersistence).catch((error) => console.warn('Persistance de session indisponible', error));
-
 loginForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   loginButton.disabled = true;
-  setMessage(authMessage, 'Connexion Firebase en cours…');
+  setStatus(authStatus, 'Connexion…', 'warning');
+  setMessage(authMessage, 'Connexion directe à Supabase Auth…');
   const data = new FormData(loginForm);
   try {
-    await signInWithEmailAndPassword(auth, String(data.get('email') || '').trim(), String(data.get('password') || ''));
+    const email = String(data.get('email') || '').trim();
+    const password = String(data.get('password') || '');
+    const { data: authData, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+    if (error) throw error;
+    if (!authData?.session || !authData?.user) throw new Error('Supabase Auth n’a pas ouvert de session.');
+    loginForm.reset();
   } catch (error) {
     console.error(error);
     setStatus(authStatus, 'Connexion refusée', 'error');
     setMessage(authMessage, readableError(error), 'error');
-  } finally { loginButton.disabled = false; }
+  } finally {
+    loginButton.disabled = false;
+  }
 });
 
 logoutButton.addEventListener('click', async () => {
   auditButton.disabled = true;
   writeButton.disabled = true;
-  await signOut(auth);
+  securityButton.disabled = true;
+  const { error } = await supabaseClient.auth.signOut({ scope:'local' });
+  if (error) {
+    console.error(error);
+    setMessage(authMessage, readableError(error), 'error');
+  }
 });
 
 auditButton.addEventListener('click', runAudit);
@@ -1061,9 +1088,10 @@ flowMciButton.addEventListener('click', createBusinessFlowMci);
 flowEndButton.addEventListener('click', endBusinessFlowShift);
 flowVerifyButton.addEventListener('click', verifyAndCleanupBusinessFlow);
 
-onAuthStateChanged(auth, async (user) => {
-  currentUser = user;
-  currentFirebaseProfile = null;
+async function applyAuthSession(session) {
+  currentSession = session || null;
+  currentUser = session?.user || null;
+  currentProfile = null;
   lastAuditSucceeded = false;
   summary.classList.add('hidden');
   countsZone.classList.add('hidden');
@@ -1072,14 +1100,14 @@ onAuthStateChanged(auth, async (user) => {
   flowResults.classList.add('hidden');
   setMessage(auditMessage, '');
 
-  if (!user) {
+  if (!currentUser || !session?.access_token) {
     loginForm.classList.remove('hidden');
     sessionPanel.classList.add('hidden');
     auditCard.setAttribute('aria-disabled', 'true');
     auditButton.disabled = true;
     setStatus(authStatus, 'Non connecté', 'neutral');
     setStatus(auditStatus, 'En attente', 'neutral');
-    setMessage(authMessage, '');
+    setMessage(authMessage, 'Connexion gérée uniquement par Supabase Auth sur ce staging.');
     refreshWriteAvailability();
     refreshSecurityAvailability();
     refreshBusinessFlowUI();
@@ -1088,24 +1116,37 @@ onAuthStateChanged(auth, async (user) => {
 
   loginForm.classList.add('hidden');
   sessionPanel.classList.remove('hidden');
-  sessionAccount.textContent = user.email ? user.email.replace(/(^.).*(@.*$)/, '$1••••$2') : 'Compte Firebase connecté';
-  setStatus(authStatus, 'Connecté', 'success');
-  setMessage(authMessage, 'Session Firebase ouverte pour le portail staging.', 'success');
+  sessionAccount.textContent = currentUser.email ? currentUser.email.replace(/(^.).*(@.*$)/, '$1••••$2') : 'Compte Supabase connecté';
+  setStatus(authStatus, 'Supabase connecté', 'success');
+  setMessage(authMessage, 'Session Supabase Auth native ouverte. Aucun SDK Firebase n’est chargé.', 'success');
 
   try {
-    currentFirebaseProfile = await loadFirebaseProfile(user);
+    const { profile } = await readSupabaseProfile(session.access_token, currentUser.id);
+    currentProfile = profile;
     auditCard.setAttribute('aria-disabled', 'false');
     auditButton.disabled = false;
     setStatus(auditStatus, 'Prêt', 'neutral');
-    setMessage(auditMessage, 'Profil Firestore retrouvé. Lance le contrôle Supabase.');
+    setMessage(auditMessage, `Profil métier ${profile.role} relié à auth.users. Lance le contrôle Supabase.`);
   } catch (error) {
     console.error(error);
     auditCard.setAttribute('aria-disabled', 'true');
     auditButton.disabled = true;
-    setStatus(auditStatus, 'Profil absent', 'error');
+    setStatus(auditStatus, 'Profil non relié', 'error');
     setMessage(auditMessage, readableError(error), 'error');
   }
+
   refreshWriteAvailability();
   refreshSecurityAvailability();
   refreshBusinessFlowUI();
+}
+
+supabaseClient.auth.onAuthStateChange((_event, session) => {
+  window.setTimeout(() => {
+    applyAuthSession(session).catch((error) => {
+      console.error(error);
+      setStatus(authStatus, 'Erreur session', 'error');
+      setMessage(authMessage, readableError(error), 'error');
+    });
+  }, 0);
 });
+

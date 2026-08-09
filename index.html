@@ -7,32 +7,32 @@
   <meta name="robots" content="noindex,nofollow,noarchive">
   <meta http-equiv="Cache-Control" content="no-store, max-age=0">
   <meta http-equiv="Pragma" content="no-cache">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://www.gstatic.com; style-src 'self'; img-src 'self' data:; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://*.firebaseapp.com https://ksoyqtsrhtsfbwmxipqz.supabase.co; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'">
-  <title>Sentinelle Pro — Staging Supabase test écriture</title>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self'; img-src 'self' data:; connect-src 'self' https://ksoyqtsrhtsfbwmxipqz.supabase.co wss://ksoyqtsrhtsfbwmxipqz.supabase.co; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'">
+  <title>Sentinelle Pro V5.8.5 — Staging Supabase Auth natif</title>
   <link rel="icon" href="./assets/favicon.png">
-  <link rel="stylesheet" href="./staging-style.css?v=3">
+  <link rel="stylesheet" href="./staging-style.css?v=585">
 </head>
 <body>
-  <div class="staging-ribbon">STAGING · TEST SUPABASE · ÉCRITURE CONTRÔLÉE</div>
+  <div class="staging-ribbon">STAGING · SUPABASE AUTH NATIF · V5.8.5</div>
   <main class="shell">
     <header class="hero">
       <img src="./assets/logo.png" alt="Sentinelle Pro" class="logo">
       <div>
-        <p class="eyebrow">Sentinelle Pro V5.8.4</p>
-        <h1>Validation Supabase · scénario métier complet</h1>
-        <p class="subtitle">Portail isolé de staging. Il valide maintenant un parcours métier complet QG → Agent → QG sans toucher à Firebase.</p>
+        <p class="eyebrow">Sentinelle Pro V5.8.5</p>
+        <h1>Validation Supabase Auth · connexion native</h1>
+        <p class="subtitle">Portail isolé de staging. La connexion, la session, les rôles et les RLS passent maintenant directement par Supabase Auth.</p>
       </div>
     </header>
 
     <section class="safety-card" aria-label="Garanties de sécurité">
-      <strong>Écriture Supabase strictement contrôlée</strong>
+      <strong>Supabase Auth natif · environnement isolé</strong>
       <div class="safety-grid">
-        <span>✓ Firebase : connexion + lecture du profil uniquement</span>
-        <span>✓ Supabase : lecture complète selon RLS</span>
-        <span>✓ Test POST → PATCH → DELETE uniquement sur un profil temporaire</span>
-        <span>✓ Le profil de test porte le préfixe <code>staging-write-test-</code></span>
+        <span>✓ Connexion email / mot de passe : Supabase Auth</span>
+        <span>✓ JWT Supabase natif utilisé directement par les RLS</span>
+        <span>✓ Profil métier relié via <code>profiles.auth_user_id</code></span>
+        <span>✓ Aucun SDK Firebase chargé sur cette page</span>
+        <span>✓ Tests d’écriture limités au staging et auto-nettoyants</span>
         <span>✓ Aucun Service Worker ni OneSignal</span>
-        <span>✓ Aucun Service Worker ni OneSignal côté métier</span>
       </div>
     </section>
 
@@ -47,19 +47,19 @@
 
       <form id="login-form" class="form-grid" autocomplete="on">
         <label>
-          <span>Adresse e-mail Firebase</span>
+          <span>Adresse e-mail Supabase Auth</span>
           <input id="email" name="email" type="email" autocomplete="email" required>
         </label>
         <label>
           <span>Mot de passe</span>
           <input id="password" name="password" type="password" autocomplete="current-password" required>
         </label>
-        <button id="login-button" type="submit" class="primary">Se connecter en lecture seule</button>
+        <button id="login-button" type="submit" class="primary">Se connecter avec Supabase</button>
       </form>
 
       <div id="session-panel" class="session-panel hidden">
         <div>
-          <span class="label">Compte Firebase</span>
+          <span class="label">Compte Supabase Auth</span>
           <strong id="session-account">Compte connecté</strong>
         </div>
         <button id="logout-button" type="button" class="secondary">Déconnexion</button>
@@ -77,8 +77,8 @@
       </div>
 
       <p class="explanation">
-        Le contrôle renouvelle le jeton Firebase, vérifie le claim <code>role=authenticated</code>,
-        retrouve le profil correspondant dans Supabase puis compte les lignes visibles selon les règles RLS.
+        Le contrôle vérifie l’utilisateur directement auprès de Supabase Auth, contrôle le JWT <code>role=authenticated</code>,
+        retrouve le profil via <code>auth_user_id</code> puis compte les lignes visibles selon les règles RLS.
       </p>
 
       <button id="audit-button" type="button" class="primary" disabled>Lancer le contrôle en lecture seule</button>
@@ -119,7 +119,7 @@
 
       <p class="explanation">
         Réservé au QG <code>admin</code> ou <code>superviseur</code>. Le test crée un profil agent temporaire dans
-        <code>profiles</code>, le relit, le modifie, vérifie la modification puis le supprime. Il ne crée aucun compte Firebase Auth.
+        <code>profiles</code>, le relit, le modifie, vérifie la modification puis le supprime. Il ne crée aucun autre compte Supabase Auth.
       </p>
 
       <div class="write-warning">
@@ -212,14 +212,16 @@
     <section class="card technical-card">
       <h2>Environnement contrôlé</h2>
       <dl>
-        <div><dt>Firebase</dt><dd>azzerap-7b440</dd></div>
-        <div><dt>Supabase</dt><dd>sentinelle-pro-staging</dd></div>
+        <div><dt>Authentification</dt><dd>Supabase Auth natif</dd></div>
+        <div><dt>Backend</dt><dd>sentinelle-pro-staging</dd></div>
         <div><dt>Projet Supabase</dt><dd>ksoyqtsrhtsfbwmxipqz</dd></div>
+        <div><dt>Firebase</dt><dd>non chargé sur ce portail V5.8.5</dd></div>
         <div><dt>Organisation migrée</dt><dd>43b09366-de36-5b44-97cc-d549eb0d4e53</dd></div>
       </dl>
     </section>
   </main>
 
-  <script type="module" src="./staging-app.js?v=4"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script type="module" src="./staging-app.js?v=585"></script>
 </body>
 </html>
