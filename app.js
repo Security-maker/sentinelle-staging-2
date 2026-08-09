@@ -5,7 +5,7 @@ import {
   createUserWithEmailAndPassword, signOut, onAuthStateChanged, initializeFirestore, persistentLocalCache,
   persistentMultipleTabManager, collection, doc, getDoc, getDocs, addDoc, setDoc, updateDoc, query, where,
   orderBy, limit, onSnapshot, serverTimestamp, Timestamp, runTransaction, deleteDoc, writeBatch, supabaseRuntimeConfigured, getSupabaseClient
-} from './supabase-compat.js?v=5882';
+} from './supabase-compat.js?v=5883';
 
 const $app = document.querySelector('#app');
 const $toast = document.querySelector('#toast-root');
@@ -335,7 +335,7 @@ function sosButton(){
 
 function boot(){
   if ('serviceWorker' in navigator) {
-    // V5.8.8.2 : enregistre explicitement le Worker Sentinelle et garde l'erreur pour le diagnostic.
+    // V5.8.8.3 : enregistre explicitement le Worker Sentinelle et garde l'erreur pour le diagnostic.
     ensureSentinelleServiceWorker({ cleanupLegacy:true, timeoutMs:8000 }).catch(error => {
       window.__SENTINELLE_SW_LAST_ERROR__ = error?.message || String(error || 'Service Worker indisponible');
       console.warn('Service Worker Sentinelle non prêt', error);
@@ -348,7 +348,7 @@ function boot(){
     }
     retryPendingSupabaseDeliveries().catch(error => console.warn('Relance Supabase impossible', error));
   });
-  window.addEventListener('offline', () => toast('Mode hors ligne V5.8.8.2 — les écritures Supabase sont suspendues jusqu’au retour du réseau', 'warning'));
+  window.addEventListener('offline', () => toast('Mode hors ligne V5.8.8.3 — les écritures Supabase sont suspendues jusqu’au retour du réseau', 'warning'));
 
   if (!isConfigured()) return renderSetupMissing();
   try {
@@ -1141,23 +1141,33 @@ async function takeShift(site, mission=null, checkInPhoto=null){
       checkInPhotoAvailable:true, checkInPhotoCapturedAt:checkInPhoto.capturedAt, checkInPhotoBytes:checkInPhoto.bytes,
       createdAt: serverTimestamp(), createdBy: currentUser.uid
     });
+    // V5.8.8.3 : la preuve de prise de poste est stockée dans le rapport automatique
+    // de prise de service. Le chemin reports -> Supabase Storage est le même que pour
+    // les photos MCI déjà validées et évite le point de panne compat shiftProofs.
+    let startReportDoc = null;
     try {
-      await setDoc(docRef('shiftProofs', shiftDoc.id), {
-        shiftId:shiftDoc.id, agentId:currentUser.uid, agentNom, siteId:site.id, siteNom:site.name,
-        imageDataUrl:checkInPhoto.dataUrl, mimeType:checkInPhoto.mimeType, bytes:checkInPhoto.bytes,
-        width:checkInPhoto.width, height:checkInPhoto.height, capturedAt:checkInPhoto.capturedAt,
+      startReportDoc = await addDoc(collectionRef('reports'), {
+        agentId:currentUser.uid, agentNom, siteId:site.id, siteNom:site.name, shiftId:shiftDoc.id, missionId:mission?.id || null,
+        category:'Prise de service', severity:'Normal', message:`Prise de poste confirmée sur ${site.name}. Photo de contrôle${gps ? ' et position GPS' : ''} enregistrée${gps ? 's' : ''}.`,
+        photoUrl:checkInPhoto.dataUrl, photoAvailable:true, photoProofAvailable:true,
+        photoBytes:Number(checkInPhoto.bytes||0), photoMimeType:checkInPhoto.mimeType||'image/jpeg',
+        photoWidth:Number(checkInPhoto.width||0), photoHeight:Number(checkInPhoto.height||0),
+        photoCapturedAt:checkInPhoto.capturedAt||new Date().toISOString(),
+        gps, status:'new', isLocked:true, systemGenerated:true, eventType:'shift_start',
         createdAt:serverTimestamp(), createdBy:currentUser.uid
       });
+      await updateDoc(docRef('shifts', shiftDoc.id), {
+        checkInPhotoAvailable:true, checkInPhotoSource:'report', checkInPhotoReportId:startReportDoc.id,
+        updatedAt:serverTimestamp(), updatedBy:currentUser.uid
+      }).catch(()=>{});
     } catch(proofError) {
-      await deleteDoc(docRef('shifts', shiftDoc.id)).catch(()=>{});
-      throw new Error('La preuve photo n’a pas pu être enregistrée dans Supabase Storage. Vérifie les RLS V5.8.7 puis réessaie.');
+      console.error('Preuve photo prise de poste non enregistrée', proofError);
+      await updateDoc(docRef('shifts', shiftDoc.id), {
+        checkInPhotoAvailable:false, checkInPhotoSource:'failed', proofStorageError:String(proofError?.message||proofError||'Erreur Storage'),
+        updatedAt:serverTimestamp(), updatedBy:currentUser.uid
+      }).catch(()=>{});
+      throw new Error(`La photo de prise de poste n’a pas pu être enregistrée : ${userFriendlyError(proofError, 'erreur Supabase Storage')}`);
     }
-    await addDoc(collectionRef('reports'), {
-      agentId:currentUser.uid, agentNom, siteId:site.id, siteNom:site.name, shiftId:shiftDoc.id, missionId:mission?.id || null,
-      category:'Prise de service', severity:'Normal', message:`Prise de poste confirmée sur ${site.name}. Photo de contrôle${gps ? ' et position GPS' : ''} enregistrée${gps ? 's' : ''}.`,
-      photoProofAvailable:true, gps, status:'new', isLocked:true, systemGenerated:true, eventType:'shift_start',
-      createdAt:serverTimestamp(), createdBy:currentUser.uid
-    }).catch(error => console.warn('Rapport automatique de prise de poste non créé', error));
     if (mission?.id) await updateDoc(docRef('missions', mission.id), { status:'active', actualStart:serverTimestamp(), shiftId:shiftDoc.id, updatedAt:serverTimestamp(), updatedBy:currentUser.uid }).catch(()=>{});
     await updateDoc(docRef('users', currentUser.uid), { statut:'en_poste', siteActuel: site.id, siteActuelNom: site.name, lastSeen: serverTimestamp() });
     currentProfile = { ...currentProfile, statut:'en_poste', siteActuel:site.id, siteActuelNom:site.name };
@@ -1698,12 +1708,21 @@ async function showAgentOperationalDetails(shift, lat, lng){
   const content = document.getElementById(`${modalId}-content`);
   if (!content) return;
   try {
-    const [userSnap, proofSnap] = await Promise.all([
+    const [userSnap, proofSnap, startReportsSnap] = await Promise.all([
       shift.agentId ? getDoc(docRef('users', shift.agentId)).catch(()=>null) : Promise.resolve(null),
-      shift.checkInPhotoAvailable ? getDoc(docRef('shiftProofs', shift.id)).catch(()=>null) : Promise.resolve(null)
+      shift.checkInPhotoAvailable ? getDoc(docRef('shiftProofs', shift.id)).catch(()=>null) : Promise.resolve(null),
+      shift.checkInPhotoAvailable ? getDocs(query(collectionRef('reports'), where('shiftId','==',shift.id), orderBy('createdAt','asc'), limit(20))).catch(()=>({docs:[]})) : Promise.resolve({docs:[]})
     ]);
     const user = userSnap?.exists?.() ? userSnap.data() : {};
-    const proof = proofSnap?.exists?.() ? proofSnap.data() : {};
+    const legacyProof = proofSnap?.exists?.() ? proofSnap.data() : {};
+    const startReports = (startReportsSnap?.docs || []).map(d => ({id:d.id, ...d.data()}));
+    const startReport = startReports.find(r => String(r.id||'')===String(shift.checkInPhotoReportId||''))
+      || startReports.find(r => r.eventType==='shift_start')
+      || startReports.find(r => r.category==='Prise de service');
+    const proof = legacyProof?.imageDataUrl ? legacyProof : {
+      imageDataUrl:startReport?.photoUrl || '',
+      capturedAt:startReport?.photoCapturedAt || startReport?.createdAt || shift.checkInPhotoCapturedAt || null
+    };
     const phone = user.telephone || user.phone || '';
     const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${lat},${lng}`)}`;
     content.innerHTML = `<div class="agent-live-identity"><div class="agent-live-avatar">${safe(String(shift.agentNom || 'A').split(/\s+/).filter(Boolean).slice(0,2).map(part=>part[0]).join('').toUpperCase())}</div><div><h3>${safe(shift.agentNom || 'Agent')}</h3><p>${safe(shift.siteNom || 'Site non renseigné')}</p></div></div>
@@ -4448,7 +4467,7 @@ function exportReportHtml(rows, filename, innerOnly=false){
 
 
 
-// -------------------- V5.8.8.2 — WEB PUSH NATIF SUPABASE --------------------
+// -------------------- V5.8.8.3 — WEB PUSH NATIF SUPABASE --------------------
 const SP_PUSH_PREF_DEFAULTS = Object.freeze({ flash:true, planning:true, instructions:true, documents:true, operations:true });
 
 function spLoadPushPreferences(){
@@ -4496,7 +4515,7 @@ async function ensureSentinelleServiceWorker({cleanupLegacy=false, timeoutMs=800
   const existingUrl = registration?.active?.scriptURL || registration?.waiting?.scriptURL || registration?.installing?.scriptURL || '';
   if (!registration || !/service-worker\.js/i.test(existingUrl)) {
     try {
-      registration = await navigator.serviceWorker.register('./service-worker.js?v=5882', { scope:'./', updateViaCache:'none' });
+      registration = await navigator.serviceWorker.register('./service-worker.js?v=5883', { scope:'./', updateViaCache:'none' });
       window.__SENTINELLE_SW_LAST_ERROR__ = '';
     } catch(error) {
       window.__SENTINELLE_SW_LAST_ERROR__ = error?.message || String(error || 'Échec enregistrement Service Worker');
@@ -4539,7 +4558,7 @@ async function spNativePushRequest(body, options={}){
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    // V5.8.8.2 : la passerelle Supabase attend le JWT utilisateur dans Authorization
+    // V5.8.8.3 : la passerelle Supabase attend le JWT utilisateur dans Authorization
     // et la clé publique du projet dans apikey pour un appel navigateur fiable.
     const response = await fetch(pushConfig.pushFunctionUrl, {
       method:'POST',
@@ -4548,7 +4567,7 @@ async function spNativePushRequest(body, options={}){
         'Accept':'application/json',
         'Authorization':`Bearer ${token}`,
         'apikey':stagingConfig.supabasePublishableKey,
-        'x-client-info':'sentinelle-pro-web-push/5.8.8.2'
+        'x-client-info':'sentinelle-pro-web-push/5.8.8.3'
       },
       body:JSON.stringify(body || {}),
       signal:controller.signal,
@@ -4800,7 +4819,7 @@ function renderPushSetup(){
         <button class="btn full" id="push-test-local" type="button">Tester une notification locale</button>
       </div>
       <div class="card"><div class="card-title"><div><h2>Diagnostic</h2><p>Supabase Auth → Edge Function → Web Push.</p></div></div>
-        <div class="setup-box">V5.8.8.2 : aucun OneSignal et aucun Worker Cloudflare n’est nécessaire. Le Service Worker PWA reçoit directement le Web Push.</div>
+        <div class="setup-box">V5.8.8.3 : aucun OneSignal et aucun Worker Cloudflare n’est nécessaire. Le Service Worker PWA reçoit directement le Web Push.</div>
         <div class="list"><div class="item"><div class="item-main"><div class="item-title">Compte connecté</div><div class="item-meta">${safe(currentProfile?.prenom||'')} ${safe(currentProfile?.nom||'')} · ${safe(currentProfile?.role||'')}</div></div></div><div class="item"><div class="item-main"><div class="item-title">Edge Function</div><div class="item-meta">${safe(pushConfig?.pushFunctionUrl||'Non configurée')}</div></div></div></div>
         <button class="btn full" id="push-diagnose-main" data-action="diagnose-web-push" type="button">Diagnostic Web Push</button><button class="btn ghost full" id="push-refresh-main" type="button">Rafraîchir l’état</button>
       </div>
