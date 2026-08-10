@@ -1,12 +1,12 @@
-const CACHE_NAME = 'sentinelle-pro-staging-v5-8-8-5-web-push';
-const CDN_CACHE_NAME = 'sentinelle-staging-cdn-v5-8-8-5';
+const CACHE_NAME = 'sentinelle-pro-staging-v5-8-8-6-web-push';
+const CDN_CACHE_NAME = 'sentinelle-staging-cdn-v5-8-8-6';
 const APP_SHELL = [
   './',
   './index.html',
-  './style.css?v=5885',
-  './app.js?v=5885',
+  './style.css?v=5886',
+  './app.js?v=5886',
   './sentinelle-config.js',
-  './supabase-compat.js?v=5885',
+  './supabase-compat.js?v=5886',
   './supabase-config.js',
   './supabase-bridge.js',
   './manifest.json',
@@ -26,7 +26,7 @@ const TRUSTED_OFFLINE_CDN = new Set([
 ]);
 
 self.addEventListener('install', event => {
-  // V5.8.8.5 : un asset secondaire manquant ne doit plus faire échouer
+  // V5.8.8.6 : un asset secondaire manquant ne doit plus faire échouer
   // l'installation complète du Service Worker sur iOS/GitHub Pages.
   event.waitUntil((async()=>{
     const cache = await caches.open(CACHE_NAME);

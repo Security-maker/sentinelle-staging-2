@@ -5,7 +5,7 @@ import {
   createUserWithEmailAndPassword, signOut, onAuthStateChanged, initializeFirestore, persistentLocalCache,
   persistentMultipleTabManager, collection, doc, getDoc, getDocs, addDoc, setDoc, updateDoc, query, where,
   orderBy, limit, onSnapshot, serverTimestamp, Timestamp, runTransaction, deleteDoc, writeBatch, supabaseRuntimeConfigured, getSupabaseClient
-} from './supabase-compat.js?v=5885';
+} from './supabase-compat.js?v=5886';
 
 const $app = document.querySelector('#app');
 const $toast = document.querySelector('#toast-root');
@@ -34,6 +34,7 @@ let sosCountdownTimer = null;
 let sosArming = false;
 let sosTriggered = false;
 let activeShiftCache = null;
+let takeShiftSubmissionLock = false;
 const endShiftSubmissionLocks = new Set();
 let lastSitesCache = [];
 let qgReportMissionGroups = [];
@@ -336,7 +337,7 @@ function sosButton(){
 
 function boot(){
   if ('serviceWorker' in navigator) {
-    // V5.8.8.5 : enregistre explicitement le Worker Sentinelle et garde l'erreur pour le diagnostic.
+    // V5.8.8.6 : enregistre explicitement le Worker Sentinelle et garde l'erreur pour le diagnostic.
     ensureSentinelleServiceWorker({ cleanupLegacy:true, timeoutMs:8000 }).catch(error => {
       window.__SENTINELLE_SW_LAST_ERROR__ = error?.message || String(error || 'Service Worker indisponible');
       console.warn('Service Worker Sentinelle non prêt', error);
@@ -349,7 +350,7 @@ function boot(){
     }
     retryPendingSupabaseDeliveries().catch(error => console.warn('Relance Supabase impossible', error));
   });
-  window.addEventListener('offline', () => toast('Mode hors ligne V5.8.8.5 — les écritures Supabase sont suspendues jusqu’au retour du réseau', 'warning'));
+  window.addEventListener('offline', () => toast('Mode hors ligne V5.8.8.6 — les écritures Supabase sont suspendues jusqu’au retour du réseau', 'warning'));
 
   if (!isConfigured()) return renderSetupMissing();
   try {
@@ -1091,15 +1092,23 @@ async function bindAgentHome(shift){
     const form = document.querySelector('#take-shift-form');
     form?.addEventListener('submit', async e => {
       e.preventDefault();
+      // V5.8.8.6 : verrou local immédiat. Même si iOS/Safari rejoue le submit,
+      // un seul démarrage peut entrer dans le flux tant que le premier n'est pas terminé.
+      if (takeShiftSubmissionLock) return;
       if (!isOnline()) return toast('Réseau indisponible — prise de poste impossible.', 'error');
       const fd = new FormData(form);
       const mission = missions.find(m => m.id === fd.get('missionId')) || null;
       const site = sites.find(s => s.id === (mission?.siteId || fd.get('siteId')));
       if (!site) return toast('Sélectionne un site.', 'warning');
       if (!checkInPhoto || !photoConfirm?.checked) return toast('La photo de prise de poste est obligatoire.', 'warning');
+      takeShiftSubmissionLock = true;
       submitButton.disabled = true;
       submitButton.textContent = 'Prise de poste en cours...';
-      await takeShift(site, mission, checkInPhoto);
+      try {
+        await takeShift(site, mission, checkInPhoto);
+      } finally {
+        takeShiftSubmissionLock = false;
+      }
     });
   } else {
     const refreshElapsed = () => {
@@ -1129,6 +1138,11 @@ function renderTakeShiftInfo(site, mission){
     <section class="site-instructions"><span>CONSIGNES OPÉRATIONNELLES</span><p>${instructions}</p></section>
   </article>`;
 }
+function isDuplicateActiveShiftError(error){
+  const code = String(error?.code || '');
+  const text = `${error?.message || ''} ${error?.details || ''} ${error?.hint || ''}`.toLowerCase();
+  return code === '23505' && (text.includes('uq_shifts_one_active_per_agent') || text.includes('one_active_per_agent') || text.includes('duplicate key'));
+}
 async function takeShift(site, mission=null, checkInPhoto=null){
   let shiftDoc = null;
   try {
@@ -1145,7 +1159,7 @@ async function takeShift(site, mission=null, checkInPhoto=null){
       checkInPhotoAvailable:true, checkInPhotoCapturedAt:checkInPhoto.capturedAt, checkInPhotoBytes:checkInPhoto.bytes,
       createdAt: serverTimestamp(), createdBy: currentUser.uid
     });
-    // V5.8.8.5 : la preuve de prise de poste est stockée dans le rapport automatique
+    // V5.8.8.6 : la preuve de prise de poste est stockée dans le rapport automatique
     // de prise de service. Le chemin reports -> Supabase Storage est le même que pour
     // les photos MCI déjà validées et évite le point de panne compat shiftProofs.
     let startReportDoc = null;
@@ -1183,8 +1197,17 @@ async function takeShift(site, mission=null, checkInPhoto=null){
     await renderAgentHome();
   } catch(error){
     console.error(error);
+    // V5.8.8.6 : le garde-fou SQL est l'autorité finale contre les démarrages
+    // concurrents. Le second appel est absorbé sans créer de rapport ni de push.
+    if (isDuplicateActiveShiftError(error)) {
+      const existing = await findActiveShift().catch(()=>null);
+      activeShiftCache = existing || activeShiftCache;
+      toast('Prise de poste déjà enregistrée · aucun doublon créé', 'success');
+      await renderAgentHome();
+      return;
+    }
     toast(error.message || 'Erreur prise de poste. Vérifie les RLS Supabase.', 'error');
-    renderAgentHome();
+    await renderAgentHome();
   }
 }
 async function loadAgentHandoverCard(shift){
@@ -1239,7 +1262,7 @@ async function endShift(shift){
       if (button) { button.disabled = true; button.textContent = 'Clôture en cours...'; }
 
       try {
-        // V5.8.8.5 : garde-fou idempotent. Si le premier clic a déjà terminé
+        // V5.8.8.6 : garde-fou idempotent. Si le premier clic a déjà terminé
         // le poste, un second passage ne réécrit rien et n'envoie aucun push.
         const latestShiftSnap = await getDoc(docRef('shifts', shiftKey)).catch(()=>null);
         if (latestShiftSnap?.exists?.() && latestShiftSnap.data()?.status === 'completed') {
@@ -4528,7 +4551,7 @@ function exportReportHtml(rows, filename, innerOnly=false){
 
 
 
-// -------------------- V5.8.8.5 — WEB PUSH NATIF SUPABASE --------------------
+// -------------------- V5.8.8.6 — WEB PUSH NATIF SUPABASE --------------------
 const SP_PUSH_PREF_DEFAULTS = Object.freeze({ flash:true, planning:true, instructions:true, documents:true, operations:true });
 
 function spLoadPushPreferences(){
@@ -4576,7 +4599,7 @@ async function ensureSentinelleServiceWorker({cleanupLegacy=false, timeoutMs=800
   const existingUrl = registration?.active?.scriptURL || registration?.waiting?.scriptURL || registration?.installing?.scriptURL || '';
   if (!registration || !/service-worker\.js/i.test(existingUrl)) {
     try {
-      registration = await navigator.serviceWorker.register('./service-worker.js?v=5885', { scope:'./', updateViaCache:'none' });
+      registration = await navigator.serviceWorker.register('./service-worker.js?v=5886', { scope:'./', updateViaCache:'none' });
       window.__SENTINELLE_SW_LAST_ERROR__ = '';
     } catch(error) {
       window.__SENTINELLE_SW_LAST_ERROR__ = error?.message || String(error || 'Échec enregistrement Service Worker');
@@ -4619,7 +4642,7 @@ async function spNativePushRequest(body, options={}){
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    // V5.8.8.5 : la passerelle Supabase attend le JWT utilisateur dans Authorization
+    // V5.8.8.6 : la passerelle Supabase attend le JWT utilisateur dans Authorization
     // et la clé publique du projet dans apikey pour un appel navigateur fiable.
     const response = await fetch(pushConfig.pushFunctionUrl, {
       method:'POST',
@@ -4880,7 +4903,7 @@ function renderPushSetup(){
         <button class="btn full" id="push-test-local" type="button">Tester une notification locale</button>
       </div>
       <div class="card"><div class="card-title"><div><h2>Diagnostic</h2><p>Supabase Auth → Edge Function → Web Push.</p></div></div>
-        <div class="setup-box">V5.8.8.5 : aucun OneSignal et aucun Worker Cloudflare n’est nécessaire. Le Service Worker PWA reçoit directement le Web Push.</div>
+        <div class="setup-box">V5.8.8.6 : aucun OneSignal et aucun Worker Cloudflare n’est nécessaire. Le Service Worker PWA reçoit directement le Web Push.</div>
         <div class="list"><div class="item"><div class="item-main"><div class="item-title">Compte connecté</div><div class="item-meta">${safe(currentProfile?.prenom||'')} ${safe(currentProfile?.nom||'')} · ${safe(currentProfile?.role||'')}</div></div></div><div class="item"><div class="item-main"><div class="item-title">Edge Function</div><div class="item-meta">${safe(pushConfig?.pushFunctionUrl||'Non configurée')}</div></div></div></div>
         <button class="btn full" id="push-diagnose-main" data-action="diagnose-web-push" type="button">Diagnostic Web Push</button><button class="btn ghost full" id="push-refresh-main" type="button">Rafraîchir l’état</button>
       </div>
