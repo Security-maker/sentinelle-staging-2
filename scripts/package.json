@@ -1,0 +1,15 @@
+{
+  "name": "sentinelle-pro-migration",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "migrate": "node migrate-firestore-to-supabase.mjs",
+    "set:firebase-claims": "node set-firebase-supabase-claims.mjs",
+    "create:client-access": "node create-client-access.mjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.0.0",
+    "firebase-admin": "^13.0.0",
+    "dotenv": "^16.4.7"
+  }
+}

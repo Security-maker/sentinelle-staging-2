@@ -16,7 +16,7 @@ const supabase = createClient(stagingConfig.supabaseUrl, stagingConfig.supabaseP
     persistSession: true,
     autoRefreshToken: true,
     detectSessionInUrl: true,
-    storageKey: 'sentinelle-pro-staging-v587-auth'
+    storageKey: 'sentinelle-pro-v590-auth'
   }
 });
 
@@ -251,7 +251,7 @@ async function loadCompatUser(user, session=null){
   return compatUserCache;
 }
 
-export function initializeApp(){ return { kind:'supabase-staging-v587' }; }
+export function initializeApp(){ return { kind:'supabase-production-v590' }; }
 export function deleteApp(){ return Promise.resolve(); }
 export function getAuth(){ return { kind:'supabase-auth-v587' }; }
 export const browserLocalPersistence = 'supabase-local';
@@ -559,7 +559,7 @@ export function onSnapshot(ref,next,error){
       const raw=ref.__kind==='doc'?(snap.exists()?snap.data():null):snap.docs.map(d=>[d.id,d.data()]);
       const nextPrint=JSON.stringify(plain(raw));
       if(nextPrint!==fingerprint){ fingerprint=nextPrint; next(snap); }
-    }catch(e){ if(!stopped){ console.warn('Flux Supabase staging indisponible',e); error?.(e); } }
+    }catch(e){ if(!stopped){ console.warn('Flux Supabase indisponible',e); error?.(e); } }
     finally{running=false;}
   };
   poll();

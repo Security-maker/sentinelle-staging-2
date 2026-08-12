@@ -1,0 +1,11 @@
+app.js
+client.html
+client-app.js
+client-style.css
+index.html
+service-worker.js
+sentinelle-config.js
+supabase-bridge.js
+supabase/migrations/002_client_portal_v591.sql
+supabase/functions/admin-manage-user/index.ts
+README-V5.9.1-CLIENT.md

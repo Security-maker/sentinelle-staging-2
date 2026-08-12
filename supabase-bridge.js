@@ -1,5 +1,5 @@
-import { supabaseConfig } from './supabase-config.js';
-import { getSupabaseClient } from './supabase-compat.js?v=587';
+import { supabaseConfig } from './supabase-config.js?v=510';
+import { getSupabaseClient } from './supabase-compat.js?v=593';
 
 function isConfigured(){
   return Boolean(
@@ -59,10 +59,30 @@ export async function mirrorGeneratedDocument({ firebaseUser, profile, document,
   if (error) throw error;
 
   let emailQueued = false;
+  let emailStatus = null;
+  let emailError = null;
   if (supabaseConfig.autoEmail && document.type === 'mission') {
     const invoke = await client.functions.invoke(supabaseConfig.emailFunction, { body:{ documentId:data.id } });
-    if (invoke.error) throw invoke.error;
-    emailQueued = Boolean(invoke.data?.sent || invoke.data?.alreadySent || invoke.data?.queued);
+    if (invoke.error) {
+      // Le PDF est déjà correctement archivé : une panne de fonction/e-mail ne doit
+      // jamais annuler l'archivage. On place explicitement le document dans la file
+      // de relance afin que le cron serveur puisse reprendre sans intervention agent.
+      emailError = String(invoke.error?.message || invoke.error);
+      emailStatus = 'retry_pending';
+      emailQueued = true;
+      const nextAttempt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+      const queued = await client.from('generated_documents').update({
+        delivery_status:'retry_pending',
+        next_delivery_attempt_at:nextAttempt,
+        delivery_error:emailError,
+        updated_at:new Date().toISOString()
+      }).eq('id',data.id);
+      if (queued.error) console.warn('Mise en file de relance impossible', queued.error);
+      console.warn('Envoi immédiat main courante indisponible, reprise cron prévue', invoke.error);
+    } else {
+      emailStatus = invoke.data?.status || null;
+      emailQueued = Boolean(invoke.data?.sent || invoke.data?.alreadySent || invoke.data?.queued || invoke.data?.status === 'sent' || invoke.data?.status === 'retry_pending');
+    }
   }
-  return { documentId:data.id, storagePath, emailQueued };
+  return { documentId:data.id, storagePath, emailQueued, emailStatus, emailError };
 }

@@ -1,0 +1,8 @@
+V5.8.8 n'utilise plus OneSignal ni le Worker Cloudflare OneSignal.
+
+Après validation du staging, les anciens éléments suivants peuvent rester temporairement sans être appelés :
+- Edge Function Supabase send-push
+- Worker Cloudflare onesignal-worker
+- fichiers /push/onesignal/*
+
+Ne les supprime de la PRODUCTION qu'au moment de la bascule V5.9.0 validée.

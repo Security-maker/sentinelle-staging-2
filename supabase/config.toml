@@ -11,3 +11,6 @@ verify_jwt = true
 
 [functions.send-web-push]
 verify_jwt = true
+
+[functions.process-main-courante-queue]
+verify_jwt = false

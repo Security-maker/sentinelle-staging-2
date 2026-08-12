@@ -1,6 +1,6 @@
 {
-  "name": "Sentinelle Pro STAGING",
-  "short_name": "Sentinelle STG",
+  "name": "Sentinelle Pro",
+  "short_name": "Sentinelle",
   "description": "PWA opérationnelle pour agence de sécurité privée",
   "start_url": "./index.html",
   "display": "standalone",

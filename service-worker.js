@@ -1,19 +1,29 @@
-const CACHE_NAME = 'sentinelle-pro-staging-v5-8-8-6-web-push';
-const CDN_CACHE_NAME = 'sentinelle-staging-cdn-v5-8-8-6';
+const CACHE_NAME = 'sentinelle-pro-v5-11-0-agent-experience-test';
+const CDN_CACHE_NAME = 'sentinelle-cdn-v5-11-0';
 const APP_SHELL = [
   './',
   './index.html',
-  './style.css?v=5886',
-  './app.js?v=5886',
+  './style.css?v=5110',
+  './app.js?v=5110',
   './sentinelle-config.js',
-  './supabase-compat.js?v=5886',
+  './supabase-compat.js?v=593',
   './supabase-config.js',
   './supabase-bridge.js',
   './manifest.json',
+  './manifest-client.json',
   './offline.html',
+  './client.html',
+  './client-style.css?v=597',
+  './client-app.js?v=597',
+  './reset-password.html',
+  './reset-password.js?v=593',
   './assets/logo.png',
+  './assets/client-logo.png',
   './assets/favicon.png',
-  './assets/icons/icon-192.png'
+  './assets/icons/icon-192.png',
+  './assets/icons/client-180.png',
+  './assets/icons/client-192.png',
+  './assets/icons/client-512.png'
 ];
 
 const TRUSTED_OFFLINE_CDN = new Set([
@@ -124,9 +134,12 @@ self.addEventListener('fetch', event => {
   }
   if (url.origin !== self.location.origin) return;
   if (request.mode === 'navigate') {
-    event.respondWith(networkFirst(request, CACHE_NAME, './index.html').then(async response => {
+    const clientPortal = /\/client\.html$/i.test(url.pathname);
+    const resetPortal = /\/reset-password\.html$/i.test(url.pathname);
+    const fallbackPage = resetPortal ? './reset-password.html' : (clientPortal ? './client.html' : './index.html');
+    event.respondWith(networkFirst(request, CACHE_NAME, fallbackPage).then(async response => {
       if (response && response.type !== 'error') return response;
-      return (await caches.match('./index.html')) || (await caches.match('./offline.html'));
+      return (await caches.match(fallbackPage)) || (await caches.match('./offline.html'));
     }));
     return;
   }

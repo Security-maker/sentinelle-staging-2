@@ -1,0 +1,26 @@
+{
+  "name": "Sentinelle Pro — Espace client",
+  "short_name": "Sentinelle Pro",
+  "description": "Portail client sécurisé Sentinelle Pro — Azzera Protect",
+  "id": "./client.html",
+  "start_url": "./client.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f4f7fa",
+  "theme_color": "#102a43",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "assets/icons/client-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "assets/icons/client-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

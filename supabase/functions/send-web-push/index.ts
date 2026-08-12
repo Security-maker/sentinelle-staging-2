@@ -1,3 +1,4 @@
+// SENTINELLE PRO V5.8.8.3 — Web Push natif Supabase
 import { createClient } from 'npm:@supabase/supabase-js@2.57.4'
 import { setVapidDetails, sendNotification } from 'npm:web-push@3.6.7'
 

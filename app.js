@@ -1,11 +1,11 @@
 import { stagingConfig, DEFAULT_QG_WHATSAPP, pushConfig } from './sentinelle-config.js';
-import { supabaseBridgeEnabled, mirrorGeneratedDocument } from './supabase-bridge.js';
+import { supabaseBridgeEnabled, mirrorGeneratedDocument } from './supabase-bridge.js?v=510';
 import {
   initializeApp, deleteApp, getAuth, setPersistence, browserLocalPersistence, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, onAuthStateChanged, initializeFirestore, persistentLocalCache,
   persistentMultipleTabManager, collection, doc, getDoc, getDocs, addDoc, setDoc, updateDoc, query, where,
   orderBy, limit, onSnapshot, serverTimestamp, Timestamp, runTransaction, deleteDoc, writeBatch, supabaseRuntimeConfigured, getSupabaseClient
-} from './supabase-compat.js?v=5886';
+} from './supabase-compat.js?v=593';
 
 const $app = document.querySelector('#app');
 const $toast = document.querySelector('#toast-root');
@@ -47,6 +47,7 @@ let qgInvoicesCache = [];
 let billingProfileCache = null;
 let qgPlanningState = { missions: [], sites: [], agents: [], startDate: null, mode: 'sites', days: 14, status: '', density: 'comfort', collaboratorAgentId: '', collaboratorMonth: '', publications: new Map() };
 let pendingMissionSelectionId = null;
+let passwordRecoveryMode = new URLSearchParams(location.search).get('recovery') === '1';
 
 const rolePortal = role => role === 'agent' ? 'agent' : 'qg';
 const nowText = () => new Date().toLocaleString('fr-FR', { dateStyle:'short', timeStyle:'short' });
@@ -320,14 +321,14 @@ function navBtn(route, icon, label){
 }
 function agentNav(){
   return [
-    navBtn('home','⌂','Accueil'), navBtn('planning','◷','Planning'), navBtn('badge','▣','Badge'), navBtn('mci','▤','MCI'), navBtn('round','◎','Ronde'), navBtn('docs','▣','Docs'), navBtn('flash','⚡','Flash'), navBtn('pushsetup','🔔','Push'), navBtn('intel','◌','Veille')
+    navBtn('home','⌂','Accueil'), navBtn('planning','◷','Planning'), navBtn('badge','▣','Badge'), navBtn('mci','▤','MCI'), navBtn('round','◎','Ronde QR'), navBtn('docs','▣','Docs'), navBtn('flash','⚡','Flash'), navBtn('pushsetup','🔔','Push'), navBtn('intel','◌','Veille')
   ].join('');
 }
 function qgNav(){
   const items = [
     navBtn('home','⌂','Dashboard'), navBtn('missions','◷','Missions'), navBtn('notifications','◆','Notif'), navBtn('reports','▤','MCI'), navBtn('documents','▣','Documents')
   ];
-  if (isStrictAdmin()) items.push(navBtn('billing','€','Facturation'));
+  if (isStrictAdmin()) items.push(navBtn('clients','◇','Clients'), navBtn('billing','€','Facturation'));
   items.push(navBtn('intel','◌','Veille'), navBtn('device','◉','Dispositif'), navBtn('sites','▦','Sites'), navBtn('agents','☷','Agents'), navBtn('alerts','!','SOS'), navBtn('flash','⚡','Flash'), navBtn('pushsetup','🔔','Push'), navBtn('history','⇩','Exports'));
   return items.join('');
 }
@@ -363,13 +364,21 @@ function boot(){
     storage = getSupabaseClient().storage;
   } catch (error) {
     console.error(error);
-    return renderFatal('Configuration Supabase staging invalide', error.message);
+    return renderFatal('Configuration Supabase production invalide', error.message);
   }
+
+  getSupabaseClient().auth.onAuthStateChange((event)=>{
+    if(event==='PASSWORD_RECOVERY'){
+      passwordRecoveryMode=true;
+      queueMicrotask(()=>renderPasswordRecovery());
+    }
+  });
 
   onAuthStateChanged(auth, async user => {
     clearSubs();
     currentUser = user;
     activeShiftCache = null;
+    if (passwordRecoveryMode) return renderPasswordRecovery();
     if (!user) return renderLogin();
     await loadProfile(user);
   });
@@ -397,7 +406,7 @@ async function loadProfile(user){
     const requestedRoute = new URLSearchParams(location.search).get('route') || 'home';
     const portal = rolePortal(currentProfile.role);
     const allowedAgentRoutes = ['home','planning','badge','mci','round','docs','flash','pushsetup','intel'];
-    const allowedQGRoutes = ['home','missions','notifications','reports','documents','billing','intel','device','sites','agents','alerts','flash','pushsetup','history'];
+    const allowedQGRoutes = ['home','missions','notifications','reports','documents','clients','billing','intel','device','sites','agents','alerts','flash','pushsetup','history'];
     currentRoute = portal === 'agent' && allowedAgentRoutes.includes(requestedRoute) ? requestedRoute : portal === 'qg' && allowedQGRoutes.includes(requestedRoute) ? requestedRoute : 'home';
     navigate(currentRoute);
     if (navigator.onLine) {
@@ -472,7 +481,7 @@ function navigate(route){
   if (portal === 'agent') {
     ({ home:renderAgentHome, planning:renderAgentPlanning, badge:renderAgentBadge, mci:renderAgentMCI, round:renderAgentRound, docs:renderAgentDocs, flash:renderAgentFlash, pushsetup:renderPushSetup, intel:renderAgentIntel }[route] || renderAgentHome)();
   } else {
-    ({ home:renderQGHome, missions:renderQGMissions, notifications:renderQGNotifications, reports:renderQGReports, documents:renderQGDocuments, billing:renderQGBilling, intel:renderQGIntel, device:renderQGDevice, sites:renderQGSites, agents:renderQGAgents, alerts:renderQGAlerts, flash:renderQGFlash, pushsetup:renderPushSetup, history:renderQGHistory }[route] || renderQGHome)();
+    ({ home:renderQGHome, missions:renderQGMissions, notifications:renderQGNotifications, reports:renderQGReports, documents:renderQGDocuments, clients:renderQGClients, billing:renderQGBilling, intel:renderQGIntel, device:renderQGDevice, sites:renderQGSites, agents:renderQGAgents, alerts:renderQGAlerts, flash:renderQGFlash, pushsetup:renderPushSetup, history:renderQGHistory }[route] || renderQGHome)();
   }
 }
 
@@ -484,10 +493,10 @@ function renderSetupMissing(){
       <p class="subtitle">Portail opérationnel sécurisé</p>
       <div class="setup-box">
         L’application est en mode production uniquement. Aucun mode démo n’est activé.<br><br>
-        La configuration Supabase staging est absente ou invalide dans <strong>sentinelle-config.js</strong>.
+        La configuration Supabase production est absente ou invalide dans <strong>sentinelle-config.js</strong>.
       </div>
       <div class="card compact">
-        <div class="item-meta">À faire : vérifier l’URL Supabase, la clé publique et l’UUID d’organisation du projet sentinelle-pro-staging.</div>
+        <div class="item-meta">À faire : vérifier l’URL Supabase, la clé publique et l’UUID d’organisation du projet Supabase Sentinelle Pro.</div>
       </div>
     </section></div>`);
 }
@@ -505,10 +514,10 @@ function renderLogin(){
         <img src="assets/logo.png" class="login-logo" alt="Sentinelle Pro">
         <h1>Sentinelle Pro</h1>
         <p class="subtitle">Portail opérationnel sécurisé</p>
-        <div class="field"><label>Email</label><input class="input" name="email" type="email" autocomplete="email" required placeholder="agent@agence.fr"></div>
+        <div class="field"><label>Email</label><input class="input" id="login-email" name="email" type="email" autocomplete="email" required placeholder="agent@agence.fr"></div>
         <div class="field"><label>Mot de passe</label><input class="input" name="password" type="password" autocomplete="current-password" required placeholder="••••••••"></div>
         <button class="btn primary full" type="submit" ${navigator.onLine?'':'disabled'}>${navigator.onLine?'Connexion sécurisée':'Connexion impossible sans réseau'}</button>
-        ${navigator.onLine?'':`<div class="setup-box warning-copy">Aucune session active n’est disponible sur cet appareil. La toute première connexion Supabase ne peut pas être vérifiée sans réseau. Connecte cet appareil une fois, puis conserve la session pour les futurs démarrages hors ligne.</div>`}
+        ${navigator.onLine?`<button class="btn ghost full" type="button" id="main-forgot-password">Mot de passe oublié ?</button>`:`<div class="setup-box warning-copy">Aucune session active n’est disponible sur cet appareil. La toute première connexion Supabase ne peut pas être vérifiée sans réseau. Connecte cet appareil une fois, puis conserve la session pour les futurs démarrages hors ligne.</div>`}
         <div class="divider"></div>
         <p class="muted" style="font-size:12px;line-height:1.55">Authentification native <strong>Supabase Auth</strong>. Les rôles métier sont lus dans <strong>public.profiles</strong>.</p>
       </form>
@@ -522,6 +531,61 @@ function renderLogin(){
     } catch (error) {
       toast('Connexion refusée. Vérifie email et mot de passe.', 'error');
     }
+  });
+  document.querySelector('#main-forgot-password')?.addEventListener('click', requestMainPasswordReset);
+}
+async function requestMainPasswordReset(){
+  if(!navigator.onLine) return toast('Connexion internet requise pour réinitialiser le mot de passe.','warning');
+  const email=String(document.querySelector('#login-email')?.value||'').trim().toLowerCase();
+  if(!email) return toast('Saisis d’abord ton adresse e-mail.','warning');
+  try{
+    const redirectTo=new URL('./reset-password.html?return=main',location.href).href;
+    const {error}=await getSupabaseClient().auth.resetPasswordForEmail(email,{redirectTo});
+    if(error) throw error;
+    toast('Si ce compte existe, un e-mail de réinitialisation vient d’être envoyé.','success');
+  }catch(error){
+    console.error('Réinitialisation mot de passe impossible',error);
+    toast(userFriendlyError(error,'Envoi du lien de réinitialisation impossible.'),'error');
+  }
+}
+function renderPasswordRecovery(){
+  currentProfile=null;
+  render(`
+    <div class="login-page">
+      <form class="login-card" id="main-password-reset-form">
+        <img src="assets/logo.png" class="login-logo" alt="Sentinelle Pro">
+        <h1>Nouveau mot de passe</h1>
+        <p class="subtitle">Compte Sentinelle Pro</p>
+        <div class="setup-box">Choisis un nouveau mot de passe d’au moins 8 caractères.</div>
+        <div class="field"><label>Nouveau mot de passe</label><input class="input" name="password" type="password" minlength="8" autocomplete="new-password" required></div>
+        <div class="field"><label>Confirmer</label><input class="input" name="confirm" type="password" minlength="8" autocomplete="new-password" required></div>
+        <button class="btn primary full" type="submit">Mettre à jour le mot de passe</button>
+        <button class="btn ghost full" type="button" id="cancel-password-recovery">Retour à la connexion</button>
+      </form>
+    </div>`);
+  document.querySelector('#main-password-reset-form')?.addEventListener('submit',async e=>{
+    e.preventDefault();
+    const fd=new FormData(e.currentTarget);const password=String(fd.get('password')||'');const confirm=String(fd.get('confirm')||'');
+    if(password.length<8) return toast('Le mot de passe doit contenir au moins 8 caractères.','warning');
+    if(password!==confirm) return toast('Les deux mots de passe ne correspondent pas.','warning');
+    const button=e.currentTarget.querySelector('button[type="submit"]');button.disabled=true;
+    try{
+      const client=getSupabaseClient();
+      const {data:{session}}=await client.auth.getSession();
+      if(!session) throw new Error('Lien expiré ou session de récupération introuvable. Demande un nouveau lien.');
+      const {error}=await client.auth.updateUser({password});if(error)throw error;
+      await client.auth.signOut().catch(()=>{});
+      passwordRecoveryMode=false;
+      history.replaceState({},'',new URL('./index.html',location.href).href);
+      renderLogin();
+      toast('Mot de passe modifié. Tu peux maintenant te reconnecter.','success');
+    }catch(error){console.error(error);toast(userFriendlyError(error,'Modification du mot de passe impossible.'),'error');}
+    finally{button.disabled=false;}
+  });
+  document.querySelector('#cancel-password-recovery')?.addEventListener('click',async()=>{
+    passwordRecoveryMode=false;
+    await getSupabaseClient().auth.signOut().catch(()=>{});
+    location.replace(new URL('./index.html',location.href).href);
   });
 }
 function renderMissingProfile(user){
@@ -587,13 +651,14 @@ function missionIsLate(m){
   const start = m.scheduledStart?.toDate?.()?.getTime();
   return start && Date.now() > start + 10*60*1000 && !['active','completed','cancelled'].includes(m.status);
 }
-function computeConformityScore({ shift, reportsCount, roundsCount, incidentsCount }){
+function computeConformityScore({ shift, reportsCount, roundsCount, incidentsCount, roundsRequired=false }){
   let score = 100;
   const start = shift.scheduledStart?.toDate?.()?.getTime();
   const actual = shift.startTime?.toDate?.()?.getTime();
   if (start && actual && actual > start + 5*60*1000) score -= Math.min(25, Math.ceil((actual - start) / 60000));
   if (!reportsCount) score -= 12;
-  if (!roundsCount) score -= 10;
+  // V5.11 : un poste de surveillance/accueil sans ronde ne doit jamais être pénalisé.
+  if (roundsRequired && !roundsCount) score -= 10;
   if (incidentsCount) score -= Math.min(10, incidentsCount * 2);
   return Math.max(0, Math.min(100, score));
 }
@@ -947,51 +1012,88 @@ function dateOnlyKey(value){ const d=timestampToDate(value); return d?`${d.getFu
 
 async function renderAgentHome(){
   currentRoute = 'home';
+  syncAgentNightMode();
   const shift = await findActiveShift().catch(error => {
     console.warn('Lecture du poste actif impossible', error);
     return navigator.onLine ? null : (activeShiftCache || null);
   });
   activeShiftCache = shift;
   const isWorking = !!shift;
-  const body = `
-    <section class="grid cols-3">
-      <div class="card stat ${isWorking?'green':'orange'}"><div class="stat-label">Statut agent</div><div class="stat-value">${isWorking?'En poste':'Hors poste'}</div><div class="muted">${safe(currentProfile.prenom || '')} ${safe(currentProfile.nom || '')}</div></div>
-      <div class="card stat blue"><div class="stat-label">Mission / site</div><div class="stat-value" style="font-size:22px">${safe(shift?.siteNom || 'Aucune')}</div><div class="muted">${isWorking ? 'Mission active' : 'Mission à sélectionner'}</div></div>
-      <div class="card stat ${navigator.onLine?'green':'orange'}"><div class="stat-label">Réseau</div><div class="stat-value">${navigator.onLine?'OK':'OFF'}</div><div class="muted">${navigator.onLine?'Synchronisation active':'Données locales actives'}</div></div>
+  const body = isWorking ? `
+    <section class="agent-xp-shell" id="agent-xp-shell">
+      <div id="agent-xp-hero" class="agent-xp-hero"><div class="agent-xp-loading"><span></span><strong>Préparation du mode mission…</strong></div></div>
+      <div id="agent-context-card" class="agent-context-card"><div class="empty">Calcul de la prochaine action…</div></div>
+    </section>
+    <section class="agent-xp-grid" style="margin-top:16px">
+      <div class="card agent-timeline-card">
+        <div class="card-title"><div><h2>Ma mission en direct</h2><p>Prise de poste, actions, rondes visuelles et MCI dans un seul fil</p></div><span class="pill blue" id="agent-live-count">0 événement</span></div>
+        <div id="agent-live-timeline" class="agent-live-timeline"><div class="empty">Chargement de la timeline…</div></div>
+      </div>
+      <div class="card agent-smart-actions-card">
+        <div class="card-title"><div><h2>Actions rapides</h2><p id="agent-mode-label">Actions adaptées au poste</p></div></div>
+        <div id="agent-smart-actions" class="agent-smart-actions"><div class="empty">Chargement…</div></div>
+        <div class="agent-secondary-actions">
+          <button class="btn small" data-route="planning">Planning</button>
+          <button class="btn small" data-route="docs">Consignes</button>
+          <button class="btn small" data-route="flash">Flash QG</button>
+          <button class="btn small" id="whatsapp-qg">WhatsApp QG</button>
+        </div>
+      </div>
+    </section>
+    <section class="card agent-handover-live" style="margin-top:16px">
+      <div class="card-title"><div><h2>Relève & transmission</h2><p>Les informations utiles de la vacation précédente restent visibles pendant ton poste</p></div></div>
+      <div id="agent-handover-card" class="handover-box"><div class="empty">Chargement de la relève…</div></div>
+    </section>
+    <section class="card offline-ready-card ${navigator.onLine?'':'offline-active'}" style="margin-top:16px">
+      <div class="card-title"><div><h2>État de l’application</h2><p id="offline-ready-status">${safe(offlineReadyText())}</p></div>${navigator.onLine?'<button class="btn small" id="offline-sync-now">Synchroniser</button>':'<span class="pill orange">Hors ligne</span>'}</div>
+      <div class="setup-box ${navigator.onLine?'':'warning-copy'}">${navigator.onLine?'Sentinelle synchronise les événements de la mission en temps réel.':'Mode hors ligne : les écritures Supabase ne sont pas garanties sans réseau. Une alerte PTI hors ligne ne peut pas prévenir le QG immédiatement : appelle le QG ou le 112.'}</div>
+    </section>
+    <section class="card agent-end-zone" style="margin-top:16px">
+      <button class="btn danger full end-shift-main-btn" id="end-shift-btn">Terminer ma mission</button>
+      <p class="muted">Un résumé complet et la transmission pour l’agent suivant seront proposés avant la clôture.</p>
+    </section>` : `
+    <section class="agent-offshift-hero">
+      <div><span class="agent-xp-eyebrow">SENTINELLE PRO · TERRAIN</span><h1>Prêt pour ta prochaine mission</h1><p>${safe(currentProfile.prenom || '')} ${safe(currentProfile.nom || '')} · sélectionne la vacation prévue puis réalise ta prise de poste.</p></div>
+      <span class="pill orange">Hors poste</span>
+    </section>
+    <section class="card" style="margin-top:16px">
+      <div class="card-title"><div><h2>Prise de poste</h2><p>Mission planifiée ou prise de poste libre</p></div></div>
+      ${takeShiftForm()}
     </section>
     <section class="card quick-actions-card" style="margin-top:16px">
-      <div class="card-title"><div><h2>Actions rapides</h2><p>Les fonctions terrain essentielles, accessibles sans défilement</p></div></div>
+      <div class="card-title"><div><h2>Avant la mission</h2><p>Planning, consignes et messages QG</p></div></div>
       <div class="quick-action-bubbles">
         <button class="quick-action-bubble primary" data-route="planning"><span class="quick-action-icon">◷</span><strong>Planning</strong><small>Mes missions</small></button>
-        <button class="quick-action-bubble" data-route="mci"><span class="quick-action-icon">▤</span><strong>Main courante</strong><small>Déclarer un événement</small></button>
-        <button class="quick-action-bubble" data-route="round"><span class="quick-action-icon">◎</span><strong>Ronde</strong><small>Scanner un point</small></button>
-        <button class="quick-action-bubble" data-route="docs"><span class="quick-action-icon">▣</span><strong>Documents</strong><small>Consignes du site</small></button>
+        <button class="quick-action-bubble" data-route="docs"><span class="quick-action-icon">▣</span><strong>Documents</strong><small>Consignes terrain</small></button>
         <button class="quick-action-bubble warning" data-route="flash"><span class="quick-action-icon">⚡</span><strong>Flash QG</strong><small>Messages prioritaires</small></button>
         <button class="quick-action-bubble" id="whatsapp-qg"><span class="quick-action-icon">◉</span><strong>WhatsApp QG</strong><small>Canal non critique</small></button>
       </div>
-      <div class="quick-actions-footer"><button class="btn full" id="enable-push">Activer les notifications écran verrouillé</button><p class="muted">En urgence, utiliser le bouton SOS/PTI.</p></div>
     </section>
     <section class="card offline-ready-card ${navigator.onLine?'':'offline-active'}" style="margin-top:16px">
       <div class="card-title"><div><h2>Mode hors ligne</h2><p id="offline-ready-status">${safe(offlineReadyText())}</p></div>${navigator.onLine?'<button class="btn small" id="offline-sync-now">Synchroniser maintenant</button>':'<span class="pill orange">Hors ligne</span>'}</div>
-      <div class="setup-box ${navigator.onLine?'':'warning-copy'}">${navigator.onLine?'Cache local de confort préparé. Le hors-ligne complet Supabase reste à valider avant la bascule production.':'V5.8.7.1 staging : les écritures Supabase ne sont pas encore garanties hors ligne. Une alerte PTI hors ligne ne peut pas prévenir le QG immédiatement : appelle le QG ou le 112.'}</div>
-    </section>
-    <section class="card" style="margin-top:16px">
-      <div class="card-title"><div><h2>${isWorking?'Poste en cours':'Prise de poste'}</h2><p>${isWorking?'Résumé, relève et clôture':'Mission planifiée ou prise de poste libre'}</p></div></div>
-      ${isWorking ? shiftSummary(shift) + `<div id="agent-handover-card" class="handover-box"><div class="empty">Chargement de la relève...</div></div><button class="btn danger full end-shift-main-btn" id="end-shift-btn">Terminer ma mission</button>` : takeShiftForm()}
+      <div class="setup-box ${navigator.onLine?'':'warning-copy'}">${navigator.onLine?'Cache local de confort préparé.':'Mode hors ligne : une première connexion avec réseau reste recommandée avant la mission.'}</div>
     </section>
     <section class="card" style="margin-top:16px">
       <div class="card-title"><div><h2>Derniers rapports envoyés</h2><p>Flux personnel</p></div></div>
-      <div id="agent-recent-reports" class="timeline"><div class="empty">Chargement...</div></div>
+      <div id="agent-recent-reports" class="timeline"><div class="empty">Chargement…</div></div>
     </section>`;
-  render(page('Accueil Agent', 'Exécution terrain rapide et sécurisée', body));
-  bindAgentHome(shift);
+  render(page('Accueil Agent', isWorking ? 'Mode mission · accompagnement terrain en temps réel' : 'Préparation de la prochaine vacation', body));
+  await bindAgentHome(shift);
   document.querySelector('#offline-sync-now')?.addEventListener('click', async event => {
     const button = event.currentTarget; button.disabled = true; button.textContent = 'Synchronisation…';
     await primeAgentOfflineData().catch(() => {});
-    button.textContent = 'Synchronisé'; setTimeout(() => { if (button.isConnected) { button.disabled=false; button.textContent='Synchroniser maintenant'; } }, 1200);
+    button.textContent = 'Synchronisé'; setTimeout(() => { if (button.isConnected) { button.disabled=false; button.textContent='Synchroniser'; } }, 1200);
   });
-  if (shift) loadAgentHandoverCard(shift);
-  listenAgentRecentReports();
+  if (shift) {
+    loadAgentHandoverCard(shift);
+    initAgentExperience(shift).catch(error => {
+      console.error('Mode mission indisponible', error);
+      const hero=document.querySelector('#agent-xp-hero');
+      if(hero) hero.innerHTML=shiftSummary(shift);
+      const ctx=document.querySelector('#agent-context-card');
+      if(ctx) ctx.innerHTML='<div class="setup-box warning-copy">Le mode mission enrichi n’a pas pu charger toutes les données. Les fonctions terrain classiques restent disponibles.</div>';
+    });
+  } else listenAgentRecentReports();
 }
 
 function shiftSummary(shift){
@@ -1008,6 +1110,247 @@ function shiftSummary(shift){
     </div>
   </div>`;
 }
+
+// -------------------- V5.11 · Agent Experience --------------------
+function syncAgentNightMode(){
+  const hour=new Date().getHours();
+  document.body.classList.toggle('agent-night-mode', hour>=20 || hour<6);
+}
+function agentHaptic(ms=18){ try{ navigator.vibrate?.(ms); }catch(_){} }
+function agentTimestampMs(value){
+  const d=timestampToDate(value);
+  return d && !Number.isNaN(d.getTime()) ? d.getTime() : 0;
+}
+function agentMode(site={}){
+  const explicit=String(site.agentExperienceMode||'').toLowerCase();
+  if(['surveillance','accueil','surveillance_rounds','mixte'].includes(explicit)) return explicit;
+  return site.visualRoundsEnabled ? 'surveillance_rounds' : 'surveillance';
+}
+function agentModeLabel(mode){
+  return ({surveillance:'Surveillance / gardiennage',accueil:'Accueil / filtrage',surveillance_rounds:'Surveillance avec rondes visuelles',mixte:'Poste mixte'}[mode]||'Mission terrain');
+}
+function agentQuickActions(mode,visualRounds=false){
+  const rows={
+    surveillance:[['RAS','RAS','Information'],['Passage véhicule','Passage véhicule','Information'],['Contrôle accès','Contrôle accès effectué','Information'],['Personne signalée','Personne signalée','Information']],
+    accueil:[['Arrivée visiteur','Arrivée visiteur','Information'],['Départ visiteur','Départ visiteur','Information'],['Livraison','Livraison réceptionnée','Information'],['Contrôle accès','Contrôle accès effectué','Information'],['Refus accès','Refus d’accès','À surveiller']],
+    surveillance_rounds:[['RAS','RAS','Information'],['Passage véhicule','Passage véhicule','Information'],['Contrôle accès','Contrôle accès effectué','Information'],['Personne signalée','Personne signalée','Information']],
+    mixte:[['RAS','RAS','Information'],['Contrôle accès','Contrôle accès effectué','Information'],['Livraison','Livraison réceptionnée','Information'],['Passage véhicule','Passage véhicule','Information'],['Personne signalée','Personne signalée','Information']]
+  }[mode]||[];
+  return visualRounds ? [...rows,['Ronde visuelle','__VISUAL_ROUND__','Ronde']] : rows;
+}
+function missionProgressState(shift){
+  const now=Date.now();
+  const start=agentTimestampMs(shift.scheduledStart)||agentTimestampMs(shift.startTime)||now;
+  const end=agentTimestampMs(shift.scheduledEnd);
+  if(!end || end<=start){
+    const elapsed=Math.max(0,now-(agentTimestampMs(shift.startTime)||now));
+    return {progress:0,remainingText:'Horaire libre',subText:`${Math.floor(elapsed/3600000)}h ${String(Math.floor(elapsed/60000)%60).padStart(2,'0')} en poste`,nearEnd:false,ended:false};
+  }
+  const progress=Math.max(0,Math.min(100,((now-start)/(end-start))*100));
+  const remaining=Math.max(0,end-now);
+  const h=Math.floor(remaining/3600000),m=Math.floor(remaining/60000)%60;
+  return {progress,remainingText:remaining>0?`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`:'00:00',subText:remaining>0?'restantes':'horaire prévu terminé',nearEnd:remaining<=15*60000,ended:now>=end};
+}
+function normalizeExternalAccesses(site={}){
+  return Array.isArray(site.externalAccesses)?site.externalAccesses.filter(Boolean):[];
+}
+function externalAccessWindow(access){
+  return {start:agentTimestampMs(access.validFrom)||0,end:agentTimestampMs(access.validUntil)||Number.MAX_SAFE_INTEGER};
+}
+function resolveSiteExternalAccess(site={},shift=null,atMs=Date.now()){
+  // V5.11 : le QR Aquila appartient à une prestation/période, jamais à un agent.
+  // Une modification du planning n'altère donc pas l'accès. En revanche, un QR
+  // expiré ne doit plus être présenté, même si la vacation avait commencé avant.
+  const candidates=normalizeExternalAccesses(site).filter(a=>!a.archived&&String(a.provider||'').toLowerCase()==='aquila'&&/^https:\/\//i.test(String(a.url||''))).filter(a=>{
+    const w=externalAccessWindow(a);
+    return atMs>=w.start&&atMs<=w.end;
+  });
+  return candidates.sort((a,b)=>(externalAccessWindow(b).start-externalAccessWindow(a).start))[0]||null;
+}
+function resolveSiteExternalAccessForMission(site={},mission={}){
+  const start=agentTimestampMs(mission.scheduledStart)||Date.now(),end=agentTimestampMs(mission.scheduledEnd)||start;
+  return normalizeExternalAccesses(site).filter(a=>!a.archived&&String(a.provider||'').toLowerCase()==='aquila').find(a=>{
+    const w=externalAccessWindow(a); return w.start<=end&&w.end>=start;
+  })||null;
+}
+function visualRoundConfig(site={}){
+  return {
+    enabled:Boolean(site.visualRoundsEnabled),
+    interval:Math.max(15,Number(site.visualRoundIntervalMinutes||60)),
+    firstDelay:Math.max(0,Number(site.visualRoundFirstDelayMinutes||30)),
+    tolerance:Math.max(0,Number(site.visualRoundToleranceMinutes||15)),
+    reminder:Math.max(0,Number(site.visualRoundReminderMinutes||10))
+  };
+}
+function visualRoundState(shift,site,reports=[]){
+  const cfg=visualRoundConfig(site);
+  if(!cfg.enabled) return {enabled:false,status:'none'};
+  const visual=reports.filter(r=>r.eventType==='visual_round'||String(r.category||'').toLowerCase()==='ronde visuelle').sort((a,b)=>agentTimestampMs(b.createdAt)-agentTimestampMs(a.createdAt));
+  const base=visual[0]?agentTimestampMs(visual[0].createdAt):(agentTimestampMs(shift.startTime)+cfg.firstDelay*60000);
+  const due=visual[0]?base+cfg.interval*60000:base;
+  const now=Date.now(),diff=due-now,late=now-due;
+  const status=late>cfg.tolerance*60000?'overdue':diff<=0?'due':diff<=cfg.reminder*60000?'soon':'scheduled';
+  return {enabled:true,cfg,last:visual[0]||null,count:visual.length,due,status,diff,late};
+}
+function formatCountdown(ms){
+  const abs=Math.max(0,Math.abs(ms));
+  const h=Math.floor(abs/3600000),m=Math.floor(abs/60000)%60;
+  if(h) return `${h} h ${String(m).padStart(2,'0')} min`;
+  return `${Math.max(1,m)} min`;
+}
+function formatShortTime(ms){ return new Date(ms).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}); }
+function reportIsIncident(report){ return ['Incident','Intervention','Anomalie'].includes(report.category)||['Important','Critique'].includes(report.severity); }
+async function agentUnreadFlash(){
+  try{
+    const snap=await getDocs(query(collectionRef('flashMessages'),orderBy('sentAt','desc'),limit(30)));
+    const rows=snap.docs.map(d=>({id:d.id,...d.data()})).filter(f=>flashTargetsMe(f)&&!f.readBy?.[currentUser.uid]);
+    const rank={Critique:4,Urgent:4,Important:3,'À surveiller':2,Information:1};
+    rows.sort((a,b)=>(rank[b.priority]||0)-(rank[a.priority]||0));
+    return rows;
+  }catch(_){return[];}
+}
+function agentExperienceTimelineHtml(reports=[]){
+  if(!reports.length) return '<div class="empty">La timeline démarrera avec la première action de cette vacation.</div>';
+  return reports.slice(0,16).map(r=>{
+    const when=agentTimestampMs(r.createdAt); const time=when?formatShortTime(when):'—';
+    const type=r.eventType||'';
+    const icon=type==='shift_start'?'▶':type==='shift_end'?'■':type==='visual_round'?'◎':type==='external_access_opened'?'↗':reportIsIncident(r)?'!':'•';
+    const cls=reportIsIncident(r)?'alert':type==='visual_round'?'round':type==='external_access_opened'?'external':'';
+    const title=r.category||'Information';
+    return `<div class="agent-live-event ${cls}"><div class="agent-live-time">${safe(time)}</div><div class="agent-live-dot">${icon}</div><div class="agent-live-copy"><strong>${safe(title)}</strong><span>${safe(r.message||'').replace(/\n/g,' · ')}</span></div></div>`;
+  }).join('');
+}
+function agentContextModel({shift,site,reports,unreadFlash}){
+  const progress=missionProgressState(shift),round=visualRoundState(shift,site,reports),external=resolveSiteExternalAccess(site,shift);
+  const externalOpened=external&&reports.some(r=>r.eventType==='external_access_opened'&&r.externalAccessId===external.id);
+  if(progress.ended) return {kind:'end',tone:'orange',eyebrow:'FIN DE VACATION',title:'Horaire prévu terminé',detail:'Vérifie ta transmission puis clôture la mission.',button:'Terminer ma mission',progress,round,external,externalOpened};
+  if(external&&!externalOpened) return {kind:'external',tone:'blue',eyebrow:'ACTION REQUISE',title:'Prise de poste Aquila',detail:`Accès externe valide jusqu’au ${dateText(external.validUntil)}.`,button:'Ouvrir Aquila',progress,round,external,externalOpened};
+  if(round.enabled&&['overdue','due','soon'].includes(round.status)){
+    const overdue=round.status==='overdue';
+    return {kind:'visual_round',tone:overdue?'red':'orange',eyebrow:overdue?'RONDE EN RETARD':round.status==='due'?'RONDE À EFFECTUER':'À VENIR',title:'Ronde visuelle',detail:overdue?`Prévue à ${formatShortTime(round.due)} · retard ${formatCountdown(round.late)}`:`Prévue vers ${formatShortTime(round.due)}${round.status==='soon'?` · dans ${formatCountdown(round.diff)}`:''}`,button:'Effectuer ma ronde',progress,round,external,externalOpened};
+  }
+  if(unreadFlash?.length){
+    const f=unreadFlash[0];
+    return {kind:'flash',tone:['Critique','Urgent','Important'].includes(f.priority)?'orange':'blue',eyebrow:'MESSAGE QG',title:`${unreadFlash.length} Flash non lu${unreadFlash.length>1?'s':''}`,detail:f.title||'Consigne à consulter',button:'Lire le Flash',progress,round,external,externalOpened};
+  }
+  return {kind:'mci',tone:'blue',eyebrow:'SURVEILLANCE EN COURS',title:'Aucune action urgente',detail:round.enabled?`Prochaine ronde vers ${formatShortTime(round.due)}`:'Reste attentif aux consignes et renseigne la main courante si nécessaire.',button:'Ajouter à la main courante',progress,round,external,externalOpened};
+}
+function renderAgentExperienceHero(state){
+  const {shift,site,reports,unreadFlash}=state,ctx=agentContextModel(state),progress=ctx.progress;
+  const incidentCount=reports.filter(reportIsIncident).length;
+  const mode=agentMode(site);
+  const hero=document.querySelector('#agent-xp-hero');
+  if(hero) hero.innerHTML=`<div class="agent-mission-hero ${ctx.tone}">
+    <div class="agent-progress-ring" style="--mission-progress:${Math.round(progress.progress*3.6)}deg"><div class="agent-progress-core"><strong>${safe(progress.remainingText)}</strong><small>${safe(progress.subText)}</small><span>EN POSTE</span></div></div>
+    <div class="agent-mission-copy"><span class="agent-xp-eyebrow">${safe(agentModeLabel(mode).toUpperCase())}</span><h1>${safe(shift.siteNom||site.name||'Mission')}</h1><p>${safe(site.address||'Adresse non renseignée')}</p><div class="agent-mission-meta"><span>${shift.scheduledStart?`${safe(timeOnlyText(shift.scheduledStart))} → ${safe(timeOnlyText(shift.scheduledEnd))}`:`Depuis ${safe(timeOnlyText(shift.startTime))}`}</span><span>${reports.length} événement${reports.length>1?'s':''}</span><span class="${incidentCount?'has-alert':''}">${incidentCount?`${incidentCount} incident${incidentCount>1?'s':''}`:'Situation normale'}</span></div></div>
+  </div>`;
+  const modeLabel=document.querySelector('#agent-mode-label'); if(modeLabel) modeLabel.textContent=agentModeLabel(mode);
+}
+function renderAgentContextCard(state){
+  const ctx=agentContextModel(state),round=ctx.round;
+  const box=document.querySelector('#agent-context-card'); if(!box)return;
+  const secondary=[];
+  if(round.enabled&&ctx.kind!=='visual_round') secondary.push(`<span>◎ Prochaine ronde · ${safe(formatShortTime(round.due))}</span>`);
+  if(state.unreadFlash?.length&&ctx.kind!=='flash') secondary.push(`<span>⚡ ${state.unreadFlash.length} Flash non lu${state.unreadFlash.length>1?'s':''}</span>`);
+  if(ctx.external&&ctx.externalOpened) secondary.push('<span>✓ Aquila ouvert sur cette vacation</span>');
+  box.className=`agent-context-card ${ctx.tone}`;
+  box.innerHTML=`<div class="agent-context-copy"><span>${safe(ctx.eyebrow)}</span><strong>${safe(ctx.title)}</strong><p>${safe(ctx.detail)}</p>${secondary.length?`<div class="agent-context-secondary">${secondary.join('')}</div>`:''}</div><button class="agent-context-cta" id="agent-context-cta">${safe(ctx.button)}</button>`;
+  document.querySelector('#agent-context-cta')?.addEventListener('click',()=>handleAgentContextAction(ctx,state));
+}
+function renderAgentSmartActions(state){
+  const box=document.querySelector('#agent-smart-actions'); if(!box)return;
+  const mode=agentMode(state.site),round=visualRoundConfig(state.site);
+  const actions=agentQuickActions(mode,round.enabled);
+  const external=resolveSiteExternalAccess(state.site,state.shift);
+  box.innerHTML=actions.map(([label,value,severity])=>`<button class="agent-smart-action ${value==='__VISUAL_ROUND__'?'round-action':''}" data-agent-quick="${safe(value)}" data-agent-quick-label="${safe(label)}" data-agent-quick-severity="${safe(severity)}"><span>${value==='__VISUAL_ROUND__'?'◎':'+'}</span><strong>${safe(label)}</strong></button>`).join('')+`${external?'<button class="agent-smart-action external-action" data-agent-external="1"><span>↗</span><strong>Ouvrir Aquila</strong></button>':''}<button class="agent-smart-action more" data-route="mci"><span>▤</span><strong>MCI détaillée</strong></button>`;
+  box.querySelectorAll('[data-route]').forEach(btn=>btn.addEventListener('click',()=>navigate(btn.dataset.route)));
+  box.querySelector('[data-agent-external]')?.addEventListener('click',()=>openAgentExternalAccess(state.shift,state.site,external));
+  box.querySelectorAll('[data-agent-quick]').forEach(btn=>btn.addEventListener('click',async()=>{
+    if(btn.dataset.agentQuick==='__VISUAL_ROUND__') return openVisualRoundModal(state.shift,state.site,state);
+    await createAgentQuickReport(state.shift,btn.dataset.agentQuickLabel,btn.dataset.agentQuick,btn.dataset.agentQuickSeverity);
+  }));
+}
+function renderAgentLiveTimeline(state){
+  const box=document.querySelector('#agent-live-timeline'); if(box) box.innerHTML=agentExperienceTimelineHtml(state.reports);
+  const count=document.querySelector('#agent-live-count'); if(count) count.textContent=`${state.reports.length} événement${state.reports.length>1?'s':''}`;
+}
+function refreshAgentExperience(state){
+  renderAgentExperienceHero(state); renderAgentContextCard(state); renderAgentSmartActions(state); renderAgentLiveTimeline(state);
+}
+async function initAgentExperience(shift){
+  const [siteSnap,missionSnap,flashRows,reportsSnap]=await Promise.all([
+    getDoc(docRef('sites',shift.siteId)).catch(()=>null),
+    shift.missionId?getDoc(docRef('missions',shift.missionId)).catch(()=>null):Promise.resolve(null),
+    agentUnreadFlash(),
+    getDocs(query(collectionRef('reports'),where('shiftId','==',shift.id),limit(80))).catch(()=>({docs:[]}))
+  ]);
+  const state={shift,site:siteSnap?.exists?.()?{id:siteSnap.id,...siteSnap.data()}:{id:shift.siteId,name:shift.siteNom},mission:missionSnap?.exists?.()?{id:missionSnap.id,...missionSnap.data()}:null,unreadFlash:flashRows,reports:reportsSnap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>agentTimestampMs(b.createdAt)-agentTimestampMs(a.createdAt))};
+  refreshAgentExperience(state);
+  const unsub=onSnapshot(query(collectionRef('reports'),where('shiftId','==',shift.id),limit(80)),snap=>{
+    state.reports=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>agentTimestampMs(b.createdAt)-agentTimestampMs(a.createdAt));
+    refreshAgentExperience(state);
+  },()=>{});
+  unsubscribeList.push(unsub);
+  const timer=setInterval(()=>refreshAgentExperience(state),30000); unsubscribeList.push(()=>clearInterval(timer));
+}
+async function handleAgentContextAction(ctx,state){
+  agentHaptic();
+  if(ctx.kind==='end') return endShift(state.shift);
+  if(ctx.kind==='external') return openAgentExternalAccess(state.shift,state.site,ctx.external);
+  if(ctx.kind==='visual_round') return openVisualRoundModal(state.shift,state.site,state);
+  if(ctx.kind==='flash') return navigate('flash');
+  navigate('mci');
+}
+async function createAgentQuickReport(shift,label,message,severity='Information'){
+  let detail='';
+  if(['Personne signalée','Refus accès'].includes(label)){
+    detail=prompt(`${label} · précision facultative :`)||'';
+  }
+  const finalMessage=detail?`${message}. ${detail}`:`${message}.`;
+  try{
+    await addDoc(collectionRef('reports'),{agentId:currentUser.uid,agentNom:`${currentProfile.prenom||''} ${currentProfile.nom||''}`.trim(),siteId:shift.siteId,siteNom:shift.siteNom,shiftId:shift.id,missionId:shift.missionId||null,category:label,severity:severity==='À surveiller'?'À surveiller':'Normal',message:finalMessage,status:'new',isLocked:true,eventType:'quick_action',createdAt:serverTimestamp(),createdBy:currentUser.uid});
+    await addAudit('agent_quick_action',{shiftId:shift.id,siteId:shift.siteId,label});
+    agentHaptic(25); toast(`${label} ajouté à la main courante.`,'success');
+  }catch(error){console.error(error);toast(userFriendlyError(error,'Action impossible à enregistrer.'),'error');}
+}
+function openVisualRoundModal(shift,site,state=null){
+  const round=visualRoundState(shift,site,state?.reports||[]);
+  showModal('Ronde visuelle',`<form id="visual-round-form" class="visual-round-form">
+    <div class="visual-round-hero"><span>RONDE TERRAIN</span><strong>${safe(shift.siteNom||site.name||'Site')}</strong><p>${round.due?`Prévue vers ${safe(formatShortTime(round.due))}`:'Validation visuelle sans QR/NFC'}</p></div>
+    <div class="field"><label>État du site</label><div class="visual-round-choice"><label><input type="radio" name="result" value="RAS" checked><span>✓ RAS</span></label><label><input type="radio" name="result" value="Anomalie"><span>! Anomalie constatée</span></label></div></div>
+    <div class="field"><label>Observation</label><textarea class="textarea" name="note" placeholder="Facultatif si RAS · obligatoire si anomalie"></textarea></div>
+    <div class="field"><label class="btn full" for="visual-round-photo">📷 Ajouter une photo (facultatif)</label><input id="visual-round-photo" type="file" accept="image/*" capture="environment" hidden><div id="visual-round-photo-preview" class="camera-preview" style="display:none"></div></div>
+    <button class="btn primary full" type="submit">Valider la ronde visuelle</button>
+  </form>`);
+  const form=document.querySelector('#visual-round-form'); let photo=null;
+  document.querySelector('#visual-round-photo')?.addEventListener('change',async e=>{
+    const file=e.target.files?.[0]; if(!file)return;
+    try{photo=await compressCheckInPhoto(file);const preview=document.querySelector('#visual-round-photo-preview');if(preview){preview.style.display='flex';preview.innerHTML=`<img src="${safe(photo.dataUrl)}" alt="Photo ronde"><div><strong>Photo prête</strong><span>${Math.max(1,Math.round(photo.bytes/1024))} Ko</span></div>`;}}catch(error){toast(userFriendlyError(error,'Photo impossible.'),'error');}
+  });
+  form?.addEventListener('submit',async e=>{
+    e.preventDefault();const fd=new FormData(form),result=String(fd.get('result')||'RAS'),note=String(fd.get('note')||'').trim();
+    if(result==='Anomalie'&&!note) return toast('Décris brièvement l’anomalie constatée.','warning');
+    const btn=form.querySelector('button[type="submit"]');btn.disabled=true;
+    try{
+      await addDoc(collectionRef('reports'),{agentId:currentUser.uid,agentNom:`${currentProfile.prenom||''} ${currentProfile.nom||''}`.trim(),siteId:shift.siteId,siteNom:shift.siteNom,shiftId:shift.id,missionId:shift.missionId||null,category:'Ronde visuelle',severity:result==='Anomalie'?'À surveiller':'Normal',message:result==='RAS'?'Ronde visuelle effectuée · RAS.':`Ronde visuelle effectuée · Anomalie : ${note}`,eventType:'visual_round',visualRoundResult:result,visualRoundScheduledFor:round.due?new Date(round.due).toISOString():null,photoUrl:photo?.dataUrl||null,photoAvailable:Boolean(photo?.dataUrl),photoBytes:Number(photo?.bytes||0),photoMimeType:photo?.mimeType||null,photoWidth:Number(photo?.width||0),photoHeight:Number(photo?.height||0),photoCapturedAt:photo?.capturedAt||null,status:'new',isLocked:true,createdAt:serverTimestamp(),createdBy:currentUser.uid});
+      await addAudit('visual_round_completed',{shiftId:shift.id,siteId:shift.siteId,result});
+      agentHaptic(35);closeModal();toast(result==='RAS'?'Ronde visuelle enregistrée · RAS':'Ronde enregistrée · anomalie signalée','success');
+    }catch(error){console.error(error);toast(userFriendlyError(error,'Ronde impossible à enregistrer.'),'error');btn.disabled=false;}
+  });
+}
+async function openAgentExternalAccess(shift,site,access){
+  if(!access?.url||!/^https:\/\//i.test(access.url)) return toast('Lien Aquila invalide.','error');
+  const current=resolveSiteExternalAccess(site,shift);
+  if(!current||current.id!==access.id) return toast('Cet accès Aquila n’est plus dans sa période de validité.','warning');
+  const opened=window.open(access.url,'_blank','noopener');
+  if(!opened) return toast('Safari a bloqué l’ouverture Aquila. Autorise les fenêtres surgissantes puis réessaie.','warning');
+  try{
+    await addDoc(collectionRef('reports'),{agentId:currentUser.uid,agentNom:`${currentProfile.prenom||''} ${currentProfile.nom||''}`.trim(),siteId:shift.siteId,siteNom:shift.siteNom,shiftId:shift.id,missionId:shift.missionId||null,category:'Accès Aquila',severity:'Normal',message:`Accès à la prise de poste Aquila ouvert depuis Sentinelle Pro${access.label?` · ${access.label}`:''}.`,eventType:'external_access_opened',externalAccessId:access.id||'',externalAccessProvider:'Aquila',status:'new',isLocked:true,createdAt:serverTimestamp(),createdBy:currentUser.uid});
+    await addAudit('external_access_opened',{shiftId:shift.id,siteId:shift.siteId,provider:'Aquila',externalAccessId:access.id||''});
+    agentHaptic(20);toast('Aquila ouvert · accès tracé dans la main courante.','success');
+  }catch(error){console.warn('Traçage Aquila impossible',error);toast('Aquila est ouvert, mais la trace Sentinelle n’a pas pu être enregistrée.','warning');}
+}
+
 function takeShiftForm(){
   return `<form id="take-shift-form" class="take-shift-flow">
     <section class="shift-step">
@@ -1229,16 +1572,25 @@ async function loadAgentHandoverCard(shift){
 }
 async function endShift(shift){
   try {
-    const reportsSnap = await getDocs(query(collectionRef('reports'), where('agentId','==',currentUser.uid), where('shiftId','==',shift.id)));
-    const roundsSnap = await getDocs(query(collectionRef('rounds'), where('agentId','==',currentUser.uid), where('shiftId','==',shift.id)));
+    const [reportsSnap,roundsSnap,siteSnap] = await Promise.all([
+      getDocs(query(collectionRef('reports'), where('agentId','==',currentUser.uid), where('shiftId','==',shift.id))),
+      getDocs(query(collectionRef('rounds'), where('agentId','==',currentUser.uid), where('shiftId','==',shift.id))),
+      getDoc(docRef('sites',shift.siteId)).catch(()=>null)
+    ]);
     const reports = reportsSnap.docs.map(d=>d.data());
+    const site = siteSnap?.exists?.() ? {id:siteSnap.id,...siteSnap.data()} : {};
+    const visualRoundCount = reports.filter(r=>r.eventType==='visual_round'||String(r.category||'').toLowerCase()==='ronde visuelle').length;
+    const roundsTotal = roundsSnap.size + visualRoundCount;
+    const roundsRequired = Boolean(site.visualRoundsEnabled);
     const incidentsCount = reports.filter(r => ['Incident','Intervention','Anomalie'].includes(r.category) || ['Important','Critique'].includes(r.severity)).length;
-    const score = computeConformityScore({ shift, reportsCount:reportsSnap.size, roundsCount:roundsSnap.size, incidentsCount });
+    const score = computeConformityScore({ shift, reportsCount:reportsSnap.size, roundsCount:roundsTotal, incidentsCount, roundsRequired });
     const agentName = `${currentProfile.prenom || ''} ${currentProfile.nom || ''}`.trim();
+    const roundCloseState = visualRoundState(shift,site,reports);
     showModal('Terminer la mission', `<form id="end-shift-form" class="end-shift-flow">
       <div class="end-shift-hero"><span>POSTE EN COURS DEPUIS</span><strong>${elapsedShiftText(shift.startTime)}</strong><p>${safe(shift.siteNom)} · prise de poste ${dateText(shift.startTime)}</p></div>
-      <div class="mission-kpis"><div class="mini-kpi"><strong>${reportsSnap.size}</strong><span>Rapports</span></div><div class="mini-kpi green"><strong>${roundsSnap.size}</strong><span>Rondes</span></div><div class="mini-kpi ${incidentsCount?'orange':'green'}"><strong>${incidentsCount}</strong><span>Événements</span></div><div class="mini-kpi ${score < 70 ? 'red' : score < 90 ? 'orange' : 'green'}"><strong>${score}%</strong><span>Conformité</span></div></div>
-      <div class="field"><label>Note de relève pour l’agent suivant</label><textarea class="textarea" name="handoverNote" placeholder="RAS, point à surveiller, incident en cours, consigne client..."></textarea></div>
+      <div class="mission-kpis"><div class="mini-kpi"><strong>${reportsSnap.size}</strong><span>Rapports</span></div><div class="mini-kpi green"><strong>${roundsTotal}</strong><span>Rondes</span></div><div class="mini-kpi ${incidentsCount?'orange':'green'}"><strong>${incidentsCount}</strong><span>Événements</span></div><div class="mini-kpi ${score < 70 ? 'red' : score < 90 ? 'orange' : 'green'}"><strong>${score}%</strong><span>Conformité</span></div></div>
+      <div class="setup-box ${roundsRequired&&['due','overdue'].includes(roundCloseState.status)?'warning-copy':''}">${roundsRequired?(roundsTotal?`✓ ${roundsTotal} ronde${roundsTotal>1?'s':''} enregistrée${roundsTotal>1?'s':''} sur cette vacation.`:'Aucune ronde visuelle enregistrée sur cette vacation.'):'Ce poste ne comporte aucune ronde obligatoire : aucune pénalité de conformité n’est appliquée.'}</div>
+      <div class="field"><label>Transmission pour l’agent suivant</label><textarea class="textarea" name="handoverNote" placeholder="RAS, point à surveiller, incident en cours, consigne client..."></textarea></div>
       <label class="checkline"><input type="checkbox" name="certify" required> Je confirme avoir terminé mon service et transmis les informations utiles.</label>
       <div class="field"><label>Signature agent</label><input class="input" name="signatureName" required value="${safe(agentName)}" placeholder="Nom et prénom"></div>
       <div class="end-shift-actions">
@@ -1291,7 +1643,7 @@ async function endShift(shift){
 
         // La clôture du shift est l'écriture métier autoritaire.
         await updateDoc(docRef('shifts', shift.id), {
-          completedAt: serverTimestamp(), endPositionGPS:endGps, status:'completed', reportsCount: finalReportsCount, roundsCount: roundsSnap.size, incidentsCount, conformityScore:score,
+          completedAt: serverTimestamp(), endPositionGPS:endGps, status:'completed', reportsCount: finalReportsCount, roundsCount: roundsTotal, incidentsCount, conformityScore:score,
           handoverNote: fd.get('handoverNote') || 'RAS', signatureName: fd.get('signatureName'), signatureStatement:true,
           updatedAt: serverTimestamp(), updatedBy: currentUser.uid
         });
@@ -1302,13 +1654,13 @@ async function endShift(shift){
 
         if (shift.missionId) {
           await updateDoc(docRef('missions', shift.missionId), {
-            status:'completed', actualEnd:serverTimestamp(), reportsCount:finalReportsCount, roundsCount:roundsSnap.size, incidentsCount, conformityScore:score, completedBy:currentUser.uid, updatedAt:serverTimestamp(), updatedBy:currentUser.uid
+            status:'completed', actualEnd:serverTimestamp(), reportsCount:finalReportsCount, roundsCount:roundsTotal, incidentsCount, conformityScore:score, completedBy:currentUser.uid, updatedAt:serverTimestamp(), updatedBy:currentUser.uid
           }).catch(error => console.warn('Mission liée non clôturée', error));
         }
 
         // Le push est exécuté une seule fois après confirmation du status=completed.
         const endPushResult = await spNotifyQGShiftEnded({
-          shiftId:shift.id, siteName:shift.siteNom||'', reportsCount:finalReportsCount, roundsCount:roundsSnap.size, incidentsCount
+          shiftId:shift.id, siteName:shift.siteNom||'', reportsCount:finalReportsCount, roundsCount:roundsTotal, incidentsCount
         });
         await addAudit('qg_shift_end_notification',{
           shiftId:shift.id,
@@ -1322,14 +1674,14 @@ async function endShift(shift){
         }).catch(error => console.warn('Profil agent non rafraîchi après clôture', error));
         currentProfile = { ...currentProfile, statut:'hors_poste', siteActuel:null, siteActuelNom:null };
         syncNativePushIdentity().catch(() => {});
-        await addAudit('shift_end', { shiftId: shift.id, reportsCount: finalReportsCount, roundsCount: roundsSnap.size, conformityScore:score, gpsAvailable:!!endGps }).catch(()=>{});
+        await addAudit('shift_end', { shiftId: shift.id, reportsCount: finalReportsCount, roundsCount: roundsTotal, conformityScore:score, gpsAvailable:!!endGps }).catch(()=>{});
 
         const [finalReportsSnap, finalShiftSnap, finalMissionSnap] = await Promise.all([
           getDocs(query(collectionRef('reports'), where('shiftId','==',shift.id))).catch(()=>({docs:[]})),
           getDoc(docRef('shifts', shift.id)).catch(()=>null),
           shift.missionId ? getDoc(docRef('missions', shift.missionId)).catch(()=>null) : Promise.resolve(null)
         ]);
-        const finalShift = finalShiftSnap?.exists?.() ? {id:finalShiftSnap.id,...finalShiftSnap.data()} : {...shift, status:'completed', handoverNote:fd.get('handoverNote')||'RAS', signatureName:fd.get('signatureName'), completedAt:new Date(), reportsCount:finalReportsCount, roundsCount:roundsSnap.size, incidentsCount, conformityScore:score};
+        const finalShift = finalShiftSnap?.exists?.() ? {id:finalShiftSnap.id,...finalShiftSnap.data()} : {...shift, status:'completed', handoverNote:fd.get('handoverNote')||'RAS', signatureName:fd.get('signatureName'), completedAt:new Date(), reportsCount:finalReportsCount, roundsCount:roundsTotal, incidentsCount, conformityScore:score};
         const finalMission = finalMissionSnap?.exists?.() ? {id:finalMissionSnap.id,...finalMissionSnap.data()} : {id:shift.missionId||shift.id, ...shift, status:'completed'};
         archiveMissionReportSilently({ mission:finalMission, shift:finalShift, reports:finalReportsSnap.docs.map(d=>({id:d.id,...d.data()})) }).catch(()=>{});
 
@@ -1552,7 +1904,7 @@ async function renderAgentRound(){
   currentRoute = 'round';
   const shift = await findActiveShift();
   const body = `<section class="grid cols-2">
-    <div class="card"><div class="card-title"><div><h2>Validation de ronde</h2><p>QR prioritaire, NFC si compatible</p></div></div>${shift ? roundUI() : `<div class="setup-box">Tu dois prendre poste avant de démarrer une ronde.</div>`}</div>
+    <div class="card"><div class="card-title"><div><h2>Ronde contrôlée QR / NFC</h2><p>Module distinct des rondes visuelles V5.11</p></div></div>${shift ? roundUI() : `<div class="setup-box">Tu dois prendre poste avant de démarrer une ronde.</div>`}</div>
     <div class="card"><div class="card-title"><div><h2>Points de contrôle</h2><p>Progression en temps réel</p></div></div><div id="round-checkpoints" class="list"><div class="empty">Chargement...</div></div></div>
   </section>`;
   render(page('Ronde Agent', 'Certification des passages terrain', body));
@@ -2374,10 +2726,13 @@ function openPlanningMissionModal(missionId){
   if (!m) return toast('Mission introuvable.', 'warning');
   const durationDays = missionDurationDays(m);
   const acknowledged=missionIsAcknowledged(m);
+  const missionSite=qgPlanningState.sites.find(site=>site.id===m.siteId)||{};
+  const aquilaAccess=resolveSiteExternalAccessForMission(missionSite,m);
   showModal('Détail mission', `<div class="mission-detail-panel">
     <div class="mission-detail-head"><div><h3>${safe(m.siteNom || 'Site')}</h3><p>${safe(m.agentNom || 'Agent')} · ${safe(m.type || 'Mission')}</p></div><span class="pill ${missionStatusColor(m.status)}">${missionStatusLabel(m.status)}</span></div>
     <div class="mission-detail-grid"><div><strong>Début</strong><span>${dateText(m.scheduledStart)}</span></div><div><strong>Fin</strong><span>${dateText(m.scheduledEnd)}</span></div><div><strong>Durée</strong><span>${durationDays > 1 ? `${durationDays} jours` : hoursText(missionDurationMinutes(m))}</span></div><div><strong>Lecture agent</strong><span>${acknowledged?`Confirmée ${dateText(m.acknowledgedAt)}`:'À confirmer'}</span></div></div>
     <div class="setup-box"><strong>Consignes :</strong><br>${safe(m.instructions || 'Aucune consigne spécifique.').replace(/\n/g,'<br>')}</div>
+    ${aquilaAccess?`<div class="setup-box aquila-mission-summary"><strong>Accès Aquila associé à cette période</strong><br>${safe(aquilaAccess.label||'Mission Aquila')} · ${safe(dateText(aquilaAccess.validFrom))} → ${safe(dateText(aquilaAccess.validUntil))}<br><span class="mono">${safe(externalAccessDomain(aquilaAccess.url))}</span></div>`:''}
     <div class="grid cols-2"><button class="btn primary" id="mission-detail-edit">Modifier la vacation</button><button class="btn" id="mission-detail-pdf">Rapport PDF</button><button class="btn" id="mission-detail-duplicate-month">Dupliquer sur le mois</button><button class="btn" id="mission-detail-duplicate-day">Dupliquer demain</button>${!['completed','cancelled'].includes(m.status)?`<button class="btn danger" id="mission-detail-cancel">Annuler mission</button>`:''}${isStrictAdmin()?`<button class="btn ghost" id="mission-detail-delete">Supprimer définitivement</button>`:''}</div>
   </div>`, 'wide');
   document.querySelector('#mission-detail-edit')?.addEventListener('click', () => openPlanningMissionEditModal(m));
@@ -2882,7 +3237,7 @@ async function clearQGNotifications(){
 }
 function listenQGNotifications(selector, max=10){
   const box = document.querySelector(selector); if (!box) return;
-  const state = { missions:[], shifts:[], users:[], alerts:[], reports:[], flash:[], clearedAt:qgNotificationClearedAt };
+  const state = { missions:[], shifts:[], users:[], alerts:[], reports:[], flash:[], documents:[], clearedAt:qgNotificationClearedAt };
   const redraw = () => {
     const rows = buildQGNotifications(state).slice(0,max);
     qgNotificationsCache = rows;
@@ -2895,6 +3250,36 @@ function listenQGNotifications(selector, max=10){
   bind('alerts', query(collectionRef('alerts'), orderBy('createdAt','desc'), limit(100)));
   bind('reports', query(collectionRef('reports'), orderBy('createdAt','desc'), limit(100)));
   bind('flash', query(collectionRef('flashMessages'), orderBy('sentAt','desc'), limit(30)));
+
+  // Les relances e-mail sont exécutées côté Supabase : on lit donc leur statut
+  // directement depuis Supabase pour que le QG voie aussi les échecs survenus
+  // après fermeture de l'application de l'agent.
+  let deliveryPollBusy=false;
+  const pollMainCouranteDeliveryAlerts=async()=>{
+    if(deliveryPollBusy||!navigator.onLine)return;
+    deliveryPollBusy=true;
+    try{
+      const sb=getSupabaseClient();
+      const {data,error}=await sb.from('generated_documents')
+        .select('id,title,type,delivery_status,delivery_error,updated_at,created_at')
+        .eq('organization_id',stagingConfig.organizationId)
+        .eq('type','mission')
+        .in('delivery_status',['failed','no_recipient'])
+        .order('updated_at',{ascending:false})
+        .limit(80);
+      if(error)throw error;
+      state.documents=(data||[]).map(d=>({
+        id:d.id,title:d.title,type:d.type,deliveryStatus:d.delivery_status,deliveryError:d.delivery_error,updatedAt:d.updated_at,createdAt:d.created_at
+      }));
+      redraw();
+    }catch(error){
+      console.warn('Statuts e-mail mains courantes indisponibles',error);
+    }finally{deliveryPollBusy=false;}
+  };
+  pollMainCouranteDeliveryAlerts();
+  const deliveryPollTimer=setInterval(pollMainCouranteDeliveryAlerts,60000);
+  unsubscribeList.push(()=>clearInterval(deliveryPollTimer));
+
   const stateRef=docRef('qgNotificationStates',currentUser.uid);
   unsubscribeList.push(onSnapshot(stateRef,snap=>{
     const clearMs=snap.exists()?qgNotificationEventMs(snap.data().clearedAt):0;
@@ -2936,6 +3321,17 @@ function buildQGNotifications(state){
   state.flash.filter(f => f.priority === 'Critique').forEach(f => {
     const sent = qgNotificationEventMs(f.sentAt);
     if (sent && now - sent > 10*60000 && Object.keys(f.readBy || {}).length === 0) rows.push({id:`flash_${f.id}`,level:'orange',eventAt:sent,title:`Flash critique non lu`, meta:`Envoyé ${dateText(f.sentAt)}`, body:f.title || f.message || 'Message sans lecture confirmée'});
+  });
+  state.documents.filter(d=>d.type==='mission' && ['failed','no_recipient'].includes(String(d.deliveryStatus||''))).forEach(d=>{
+    const eventAt=qgNotificationEventMs(d.updatedAt||d.createdAt);
+    rows.push({
+      id:`main_courante_delivery_${d.id}`,
+      level:d.deliveryStatus==='failed'?'red':'orange',
+      eventAt,
+      title:d.deliveryStatus==='failed'?'Échec envoi main courante':'Main courante sans destinataire',
+      meta:`${d.title||'Rapport de mission'} · ${dateText(d.updatedAt||d.createdAt)}`,
+      body:d.deliveryStatus==='failed'?'Les 3 tentatives automatiques ont échoué. Vérification QG requise.':'Configure un e-mail rapports dans la fiche client puis relance l’envoi.'
+    });
   });
   const clearedAt=Number(state.clearedAt||0);
   const levelWeight={red:3,orange:2,blue:1};
@@ -3332,7 +3728,7 @@ function intelText(result){
 }
 async function runSecurityIntel(city, audience='qg'){
   const workerUrl = getIntelWorkerUrl();
-  if (!workerUrl) throw new Error('Veille externe désactivée sur le staging pendant la migration Supabase.');
+  if (!workerUrl) throw new Error('Veille externe indisponible actuellement.');
   const payload = { city, audience, userRole: currentProfile?.role || 'agent', siteActuel: currentProfile?.siteActuelNom || currentProfile?.siteActuel || null };
   const res = await fetch(workerUrl, { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify(payload) });
   let data = null;
@@ -3442,6 +3838,139 @@ function renderQGDevice(){
   }));
 }
 
+
+async function renderQGClients(){
+  currentRoute='clients';
+  if(!isStrictAdmin()) return navigate('home');
+  const body=`<section class="grid cols-3" id="client-admin-metrics">
+    <div class="card stat blue"><div class="stat-label">Clients</div><div class="stat-value" id="client-count">—</div><div class="muted">Entités rattachées aux sites</div></div>
+    <div class="card stat green"><div class="stat-label">Accès portail</div><div class="stat-value" id="client-user-count">—</div><div class="muted">Comptes client actifs</div></div>
+    <div class="card stat orange"><div class="stat-label">PDF rattachés</div><div class="stat-value" id="client-doc-count">—</div><div class="muted">Documents visibles via RLS</div></div>
+  </section>
+  <section class="card" style="margin-top:16px"><div class="card-title"><div><h2>Clients & espace client</h2><p>Sites autorisés, destinataires et comptes de connexion</p></div><div class="btn-row"><button class="btn" id="client-copy-link">Copier le lien portail</button><button class="btn primary" id="client-add">+ Ajouter client</button></div></div>
+  <div class="setup-box">L’espace client est sécurisé par Supabase Auth et RLS. Active « e-mail auto » pour qu’une main courante soit envoyée automatiquement après clôture réelle de mission. En cas d’échec, le serveur effectue jusqu’à 3 tentatives sans doubler un envoi déjà confirmé.</div>
+  <div id="client-admin-table" class="table-wrap"><div class="empty">Chargement…</div></div></section>`;
+  render(page('Clients','Portail client et distribution des mains courantes',body));
+  document.querySelector('#client-copy-link')?.addEventListener('click',async()=>{
+    const url=new URL('./client.html',location.href).href;
+    await navigator.clipboard?.writeText(url).catch(()=>{});toast('Lien espace client copié.','success');
+  });
+  document.querySelector('#client-add')?.addEventListener('click',()=>showClientAdminForm(null,[]));
+  await loadQGClientsAdmin();
+}
+
+async function loadQGClientsAdmin(){
+  const box=document.querySelector('#client-admin-table');if(!box)return;
+  const client=getSupabaseClient();
+  try{
+    const [clientsRes,sitesRes,linksRes,docsRes]=await Promise.all([
+      client.from('clients').select('id,name,report_email,billing_email,siret,address,active,portal_enabled,auto_email,created_at').order('name'),
+      client.from('sites').select('id,firebase_id,name,address,client_id,client_name,active').order('name'),
+      client.from('client_users').select('client_id,profile_id,profiles(id,email,first_name,last_name,active,auth_user_id)').order('created_at'),
+      client.from('generated_documents').select('id,client_id,status,delivery_status,created_at').eq('status','active')
+    ]);
+    for(const r of [clientsRes,sitesRes,linksRes,docsRes]) if(r.error) throw r.error;
+    const clients=clientsRes.data||[],sites=sitesRes.data||[],links=linksRes.data||[],docs=docsRes.data||[];
+    document.querySelector('#client-count').textContent=String(clients.length);
+    document.querySelector('#client-user-count').textContent=String(links.filter(l=>l.profiles?.active!==false).length);
+    document.querySelector('#client-doc-count').textContent=String(docs.filter(d=>d.client_id).length);
+    const siteCount=new Map(),docCount=new Map(),userMap=new Map();
+    sites.forEach(site=>{if(site.client_id)siteCount.set(site.client_id,(siteCount.get(site.client_id)||0)+1)});
+    docs.forEach(doc=>{if(doc.client_id)docCount.set(doc.client_id,(docCount.get(doc.client_id)||0)+1)});
+    links.forEach(link=>{if(!userMap.has(link.client_id))userMap.set(link.client_id,[]);userMap.get(link.client_id).push(link.profiles)});
+    box.innerHTML=clients.length?`<table class="table"><thead><tr><th>Client</th><th>Sites</th><th>PDF</th><th>Portail</th><th>E-mail rapports</th><th>Envoi auto</th><th>Actions</th></tr></thead><tbody>${clients.map(c=>{
+      const users=(userMap.get(c.id)||[]).filter(Boolean);
+      const portal=users.length?users.map(u=>`<div style="display:flex;align-items:center;gap:8px;justify-content:space-between;margin:0 0 7px;min-width:220px"><span style="overflow-wrap:anywhere">${safe(u.email||`${u.first_name||''} ${u.last_name||''}`.trim())}</span><button class="btn small danger" type="button" data-client-access-delete="${safe(u.id)}" data-client-id="${safe(c.id)}">Supprimer accès</button></div>`).join(''):'Aucun compte';
+      return `<tr><td><strong>${safe(c.name)}</strong><br><span class="muted">${safe(c.address||'')}</span></td><td>${siteCount.get(c.id)||0}</td><td>${docCount.get(c.id)||0}</td><td>${portal}<br><span class="pill ${c.portal_enabled===false?'red':'green'}">${c.portal_enabled===false?'désactivé':'autorisé'}</span></td><td>${safe(c.report_email||'—')}</td><td><span class="pill ${c.auto_email?'green':''}">${c.auto_email?'Oui':'Non'}</span></td><td><div class="table-actions"><button class="btn small" data-client-edit="${safe(c.id)}">Configurer</button><button class="btn small primary" data-client-access="${safe(c.id)}">Créer accès</button></div></td></tr>`;
+    }).join('')}</tbody></table>`:'<div class="empty">Aucun client. La migration V5.9.1 peut reconstituer les clients à partir des sites existants.</div>';
+    document.querySelectorAll('[data-client-edit]').forEach(btn=>btn.addEventListener('click',()=>showClientAdminForm(clients.find(c=>c.id===btn.dataset.clientEdit),sites)));
+    document.querySelectorAll('[data-client-access]').forEach(btn=>btn.addEventListener('click',()=>showClientAccessForm(clients.find(c=>c.id===btn.dataset.clientAccess))));
+    document.querySelectorAll('[data-client-access-delete]').forEach(btn=>btn.addEventListener('click',()=>{
+      const link=links.find(l=>String(l.profile_id)===String(btn.dataset.clientAccessDelete)&&String(l.client_id)===String(btn.dataset.clientId));
+      const clientRow=clients.find(c=>String(c.id)===String(btn.dataset.clientId));
+      requestDeleteClientPortalAccess(clientRow,link?.profiles);
+    }));
+  }catch(error){
+    console.error(error);box.innerHTML=`<div class="setup-box danger-copy">${safe(userFriendlyError(error,'Module clients indisponible. Exécute la migration SQL V5.9.1 avant d’utiliser cet écran.'))}</div>`;
+  }
+}
+
+function showClientAdminForm(c=null,sites=[]){
+  const isEdit=Boolean(c?.id);const clientId=c?.id||'';
+  const siteRows=(sites||[]).map(site=>{
+    const checked=site.client_id===clientId;
+    const other=site.client_id&&site.client_id!==clientId;
+    return `<label class="item compact" style="cursor:pointer"><input type="checkbox" name="siteIds" value="${safe(site.id)}" ${checked?'checked':''}><div class="item-main"><div class="item-title">${safe(site.name)}</div><div class="item-meta">${safe(site.address||'')}${other?' · actuellement rattaché à un autre client':''}</div></div></label>`;
+  }).join('');
+  showModal(isEdit?'Configurer client':'Créer client',`<form id="client-admin-form">
+    <div class="form-grid"><div class="field span-2"><label>Raison sociale / nom client</label><input class="input" name="name" value="${safe(c?.name||'')}" required></div><div class="field"><label>E-mail rapports</label><input class="input" type="email" name="reportEmail" value="${safe(c?.report_email||'')}"></div><div class="field"><label>E-mail facturation</label><input class="input" type="email" name="billingEmail" value="${safe(c?.billing_email||'')}"></div><div class="field"><label>SIRET</label><input class="input" name="siret" value="${safe(c?.siret||'')}"></div><div class="field"><label>Portail</label><select class="select" name="portalEnabled"><option value="true" ${c?.portal_enabled!==false?'selected':''}>Activé</option><option value="false" ${c?.portal_enabled===false?'selected':''}>Désactivé</option></select></div><div class="field span-2"><label>Adresse</label><input class="input" name="address" value="${safe(c?.address||'')}"></div><div class="field"><label>Envoi automatique des mains courantes</label><select class="select" name="autoEmail"><option value="false" ${!c?.auto_email?'selected':''}>Non</option><option value="true" ${c?.auto_email?'selected':''}>Oui</option></select></div><div class="field"><label>Statut</label><select class="select" name="active"><option value="true" ${c?.active!==false?'selected':''}>Actif</option><option value="false" ${c?.active===false?'selected':''}>Inactif</option></select></div></div>
+    ${isEdit?`<div class="divider"></div><h3>Sites accessibles</h3><div class="list" style="max-height:310px;overflow:auto">${siteRows||'<div class="empty">Aucun site disponible.</div>'}</div>`:'<div class="setup-box">Après création, ouvre « Configurer » pour rattacher les sites.</div>'}
+    <button class="btn primary full" type="submit">${isEdit?'Enregistrer':'Créer le client'}</button></form>`,'wide');
+  document.querySelector('#client-admin-form')?.addEventListener('submit',async e=>{
+    e.preventDefault();const button=e.currentTarget.querySelector('button[type="submit"]');button.disabled=true;const fd=new FormData(e.currentTarget);const sb=getSupabaseClient();
+    try{
+      const record={organization_id:stagingConfig.organizationId,name:String(fd.get('name')||'').trim(),report_email:String(fd.get('reportEmail')||'').trim()||null,billing_email:String(fd.get('billingEmail')||'').trim()||null,siret:String(fd.get('siret')||'').trim()||null,address:String(fd.get('address')||'').trim()||null,portal_enabled:String(fd.get('portalEnabled'))==='true',auto_email:String(fd.get('autoEmail'))==='true',active:String(fd.get('active'))==='true',updated_at:new Date().toISOString()};
+      let id=clientId;
+      if(isEdit){const {error}=await sb.from('clients').update(record).eq('id',clientId);if(error)throw error;}
+      else{record.firebase_id=`client:qg:${crypto.randomUUID()}`;const {data,error}=await sb.from('clients').insert(record).select('id').single();if(error)throw error;id=data.id;}
+      if(isEdit){
+        const selected=new Set(fd.getAll('siteIds').map(String));
+        const owned=(sites||[]).filter(s=>s.client_id===clientId);
+        for(const site of owned.filter(s=>!selected.has(String(s.id)))){
+          const {error}=await sb.from('sites').update({client_id:null,updated_at:new Date().toISOString()}).eq('id',site.id);if(error)throw error;
+          await sb.from('client_sites').delete().eq('client_id',clientId).eq('site_id',site.id);
+        }
+        for(const siteId of selected){
+          const {error:cleanupError}=await sb.from('client_sites').delete().eq('site_id',siteId).neq('client_id',clientId);if(cleanupError)throw cleanupError;
+          const {error}=await sb.from('sites').update({client_id:clientId,updated_at:new Date().toISOString()}).eq('id',siteId);if(error)throw error;
+          const {error:linkError}=await sb.from('client_sites').upsert({organization_id:stagingConfig.organizationId,client_id:clientId,site_id:siteId},{onConflict:'client_id,site_id'});if(linkError)throw linkError;
+        }
+        for(const site of (sites||[])){
+          const siteId=String(site.id);const firebaseSiteId=String(site.firebase_id||'');if(!firebaseSiteId)continue;
+          if(selected.has(siteId)){
+            const {error}=await sb.from('generated_documents').update({client_id:clientId,updated_at:new Date().toISOString()}).eq('firebase_site_id',firebaseSiteId);if(error)throw error;
+          }else if(site.client_id===clientId){
+            const {error}=await sb.from('generated_documents').update({client_id:null,updated_at:new Date().toISOString()}).eq('firebase_site_id',firebaseSiteId).eq('client_id',clientId);if(error)throw error;
+          }
+        }
+      }
+      await addAudit(isEdit?'client_updated':'client_created',{clientId:id,name:record.name});closeModal();toast(isEdit?'Client enregistré':'Client créé','success');await loadQGClientsAdmin();
+    }catch(error){console.error(error);toast(userFriendlyError(error,'Enregistrement client impossible.'),'error');button.disabled=false;}
+  });
+}
+
+function showClientAccessForm(c){
+  if(!c)return;
+  showModal('Créer un accès espace client',`<form id="client-access-form"><div class="setup-box">Le compte sera limité au client <strong>${safe(c.name)}</strong> par Supabase Auth et les RLS.</div><div class="form-grid"><div class="field"><label>Prénom</label><input class="input" name="firstName" required></div><div class="field"><label>Nom</label><input class="input" name="lastName" required></div><div class="field span-2"><label>E-mail de connexion</label><input class="input" type="email" name="email" value="${safe(c.report_email||'')}" required></div><div class="field"><label>Mot de passe initial</label><input class="input" type="password" name="password" minlength="8" required></div><div class="field"><label>Confirmer</label><input class="input" type="password" name="confirm" minlength="8" required></div></div><button class="btn primary full" type="submit">Créer le compte client</button></form>`);
+  document.querySelector('#client-access-form')?.addEventListener('submit',async e=>{
+    e.preventDefault();const fd=new FormData(e.currentTarget);const password=String(fd.get('password')||'');if(password.length<8)return toast('Mot de passe : 8 caractères minimum.','warning');if(password!==String(fd.get('confirm')||''))return toast('Les mots de passe ne correspondent pas.','warning');const button=e.currentTarget.querySelector('button');button.disabled=true;
+    try{
+      const sb=getSupabaseClient();const {data,error}=await sb.functions.invoke('admin-manage-user',{body:{action:'create_client',clientId:c.id,email:String(fd.get('email')||'').trim(),password,firstName:String(fd.get('firstName')||'').trim(),lastName:String(fd.get('lastName')||'').trim()}});
+      if(error)throw error;if(!data?.ok)throw new Error(data?.error||'Création du compte client non confirmée.');await addAudit('client_portal_account_created',{clientId:c.id,email:data.email});closeModal();toast('Accès client créé.','success');await loadQGClientsAdmin();
+    }catch(error){console.error(error);toast(userFriendlyError(error,'Création du compte client impossible.'),'error');button.disabled=false;}
+  });
+}
+
+
+function requestDeleteClientPortalAccess(clientRow,profile){
+  if(!clientRow||!profile?.id) return toast('Accès client introuvable.','error');
+  const label=profile.email||`${profile.first_name||''} ${profile.last_name||''}`.trim()||'ce compte';
+  confirmDestructiveAction({
+    title:'Supprimer l’accès client',
+    message:`Le compte ${label} sera supprimé de Sentinelle Pro. Son utilisateur Supabase Auth, son profil client et tous ses liens d’accès seront supprimés. Le client ${clientRow.name}, ses sites et ses PDF restent intacts.`,
+    confirmWord:'SUPPRIMER',
+    actionLabel:'Supprimer l’accès',
+    onConfirm:async()=>{
+      const sb=getSupabaseClient();
+      const {data,error}=await sb.functions.invoke('admin-manage-user',{body:{action:'delete_client_access',profileId:profile.id,authUserId:profile.auth_user_id||'',clientId:clientRow.id}});
+      if(error) throw error;
+      if(!data?.ok) throw new Error(data?.error||'Suppression de l’accès client non confirmée.');
+      toast('Accès client supprimé. L’adresse e-mail peut être réutilisée.','success');
+      await loadQGClientsAdmin();
+    }
+  });
+}
+
 function renderQGAgents(){
   currentRoute = 'agents';
   const body = `<section class="card"><div class="card-title"><div><h2>Gestion Agents</h2><p>Profils, rôles et statut</p></div><button class="btn primary small" id="add-agent-profile">Ajouter profil</button></div><div id="agents-table" class="table-wrap"><div class="empty">Chargement...</div></div></section>`;
@@ -3536,7 +4065,7 @@ function showAgentForm(u={}){
   const c = badgeCompany(u);
   let pendingBadgePhotoDataUrl = u.badgePhotoDataUrl || u.photoDataUrl || '';
   showModal(isEdit?'Modifier profil':'Créer compte agent', `<form id="agent-form">
-    ${!isEdit ? `<div class="setup-box">V5.8.7.1 staging : le compte Supabase Auth et son profil sont créés ensemble par une Edge Function sécurisée. Aucun secret administrateur n’est exposé dans le navigateur.</div>` : ''}
+    ${!isEdit ? `<div class="setup-box">Le compte Supabase Auth et son profil sont créés ensemble par une Edge Function sécurisée. Aucun secret administrateur n’est exposé dans le navigateur.</div>` : ''}
     <div class="invoice-form-section"><h3>Identité et accès</h3><div class="form-grid">
       <div class="field"><label>UID historique / external_uid ${isEdit?'':'(requis après création Supabase Auth)'}</label><input class="input mono" name="uid" value="${safe(u.id || u.uid || '')}" ${isEdit?'readonly':''} placeholder="Conserver l’external_uid du profil métier"></div>
       <div class="field"><label>Email de connexion</label><input class="input" name="email" type="email" value="${safe(u.email || '')}" required></div>
@@ -3679,8 +4208,9 @@ function renderSitesTable(rows){
   const box = document.querySelector('#sites-table');
   if (!rows.length) return box.innerHTML = `<div class="empty">Aucun site configuré.</div>`;
   const billingHead = isStrictAdmin() ? '<th>Tarif horaire</th>' : '';
-  box.innerHTML = `<table class="table"><thead><tr><th>Couleur</th><th>Site</th><th>Client</th><th>Adresse</th>${billingHead}<th>Actif</th><th>Action</th></tr></thead><tbody>${rows.map(s=>{const color=normalizeHexColor(s.planningColor)||planningColorForSite(s.id);return `<tr><td><span class="site-color-swatch" style="background:${color}" title="${color}"></span></td><td>${safe(s.name)}</td><td>${safe(s.clientName || '')}</td><td>${safe(s.address || '')}</td>${isStrictAdmin()?`<td>${s.hourlyRate?money(s.hourlyRate):'—'}</td>`:''}<td>${s.isActive?'Oui':'Non'}</td><td><div class="table-actions"><button class="btn small" data-edit-site="${safe(s.id)}">Modifier</button><button class="btn small" data-points-site="${safe(s.id)}">Points</button>${isStrictAdmin()?`<button class="btn small danger" data-delete-site="${safe(s.id)}">Supprimer</button>`:''}</div></td></tr>`}).join('')}</tbody></table>`;
+  box.innerHTML = `<table class="table"><thead><tr><th>Couleur</th><th>Site</th><th>Client</th><th>Expérience agent</th><th>Adresse</th>${billingHead}<th>Actif</th><th>Action</th></tr></thead><tbody>${rows.map(s=>{const color=normalizeHexColor(s.planningColor)||planningColorForSite(s.id);const ext=resolveSiteExternalAccess(s,null);const mode=agentMode(s);return `<tr><td><span class="site-color-swatch" style="background:${color}" title="${color}"></span></td><td>${safe(s.name)}</td><td>${safe(s.clientName || '')}</td><td><span class="pill blue">${safe(agentModeLabel(mode))}</span>${s.visualRoundsEnabled?'<br><span class="pill orange">Rondes visuelles</span>':''}${ext?'<br><span class="pill green">Aquila actif</span>':''}</td><td>${safe(s.address || '')}</td>${isStrictAdmin()?`<td>${s.hourlyRate?money(s.hourlyRate):'—'}</td>`:''}<td>${s.isActive?'Oui':'Non'}</td><td><div class="table-actions"><button class="btn small" data-edit-site="${safe(s.id)}">Modifier</button><button class="btn small" data-aquila-site="${safe(s.id)}">Aquila</button><button class="btn small ghost" data-points-site="${safe(s.id)}">Ronde QR</button>${isStrictAdmin()?`<button class="btn small danger" data-delete-site="${safe(s.id)}">Supprimer</button>`:''}</div></td></tr>`}).join('')}</tbody></table>`;
   document.querySelectorAll('[data-edit-site]').forEach(btn => btn.addEventListener('click', () => showSiteForm(rows.find(s=>s.id===btn.dataset.editSite))));
+  document.querySelectorAll('[data-aquila-site]').forEach(btn => btn.addEventListener('click', () => showAquilaAccessManager(rows.find(s=>s.id===btn.dataset.aquilaSite))));
   document.querySelectorAll('[data-points-site]').forEach(btn => btn.addEventListener('click', () => showCheckpointsManager(btn.dataset.pointsSite)));
   document.querySelectorAll('[data-delete-site]').forEach(btn => btn.addEventListener('click', () => requestDeleteSite(rows.find(s=>s.id===btn.dataset.deleteSite))));
 }
@@ -3702,6 +4232,18 @@ function showSiteForm(s={}){
     <div class="field"><label>Adresse de facturation</label><input class="input" name="billingAddress" value="${safe(s.billingAddress || s.address || '')}"></div>`:''}
     <div class="field"><label>Actif</label><select class="select" name="isActive"><option value="true" ${s.isActive!==false?'selected':''}>Oui</option><option value="false" ${s.isActive===false?'selected':''}>Non</option></select></div>
   </div>
+  <section class="site-agent-experience-config">
+    <div class="site-agent-experience-head"><span>V5.11 · EXPÉRIENCE AGENT</span><h3>Comportement du poste</h3><p>Sentinelle adapte l’accueil de l’agent aux exigences réelles du site. Les rondes QR/NFC restent indépendantes.</p></div>
+    <div class="form-grid">
+      <div class="field"><label>Type de poste</label><select class="select" name="agentExperienceMode"><option value="surveillance" ${agentMode(s)==='surveillance'?'selected':''}>Surveillance / gardiennage</option><option value="accueil" ${agentMode(s)==='accueil'?'selected':''}>Accueil / filtrage</option><option value="surveillance_rounds" ${agentMode(s)==='surveillance_rounds'?'selected':''}>Surveillance avec rondes visuelles</option><option value="mixte" ${agentMode(s)==='mixte'?'selected':''}>Mixte</option></select></div>
+      <div class="field"><label>Rondes visuelles</label><select class="select" name="visualRoundsEnabled" id="site-visual-round-enabled"><option value="false" ${!s.visualRoundsEnabled?'selected':''}>Non</option><option value="true" ${s.visualRoundsEnabled?'selected':''}>Oui</option></select></div>
+    </div>
+    <div id="site-visual-round-settings" class="visual-round-settings ${s.visualRoundsEnabled?'':'hidden'}">
+      <div class="form-grid"><div class="field"><label>Fréquence</label><div class="input-suffix"><input class="input" type="number" min="15" max="720" step="5" name="visualRoundIntervalMinutes" value="${safe(s.visualRoundIntervalMinutes||60)}"><span>min</span></div></div><div class="field"><label>Première ronde après prise de poste</label><div class="input-suffix"><input class="input" type="number" min="0" max="720" step="5" name="visualRoundFirstDelayMinutes" value="${safe(s.visualRoundFirstDelayMinutes??30)}"><span>min</span></div></div></div>
+      <div class="form-grid"><div class="field"><label>Tolérance avant retard</label><div class="input-suffix"><input class="input" type="number" min="0" max="120" step="5" name="visualRoundToleranceMinutes" value="${safe(s.visualRoundToleranceMinutes??15)}"><span>min</span></div></div><div class="field"><label>Rappel avant ronde</label><div class="input-suffix"><input class="input" type="number" min="0" max="60" step="5" name="visualRoundReminderMinutes" value="${safe(s.visualRoundReminderMinutes??10)}"><span>min</span></div></div></div>
+      <div class="setup-box">Une ronde visuelle se valide directement depuis l’accueil agent et crée une entrée dans la main courante. Elle n’ouvre jamais le module Ronde QR/NFC.</div>
+    </div>
+  </section>
   <details class="advanced-coordinates"><summary>Réglage manuel de la position (facultatif)</summary><div class="form-grid"><div class="field"><label>Latitude</label><input class="input mono" id="site-latitude" name="latitude" type="number" step="any" value="${safe(existingLat)}" placeholder="43.433"></div><div class="field"><label>Longitude</label><input class="input mono" id="site-longitude" name="longitude" type="number" step="any" value="${safe(existingLng)}" placeholder="6.737"></div></div></details>
   <div class="field"><label>Consignes principales</label><textarea class="textarea site-instructions-input" name="instructions" placeholder="Consignes opérationnelles, accès, rondes, filtrage, contacts...">${safe(s.instructions || '')}</textarea></div><button class="btn primary full" type="submit">Enregistrer site</button></form>`, 'wide');
   const form = document.querySelector('#site-form');
@@ -3710,6 +4252,9 @@ function showSiteForm(s={}){
   const lngInput = document.querySelector('#site-longitude');
   const statusBox = document.querySelector('#site-geocode-status');
   const locateButton = document.querySelector('#site-geocode-btn');
+  const visualRoundToggle = document.querySelector('#site-visual-round-enabled');
+  const visualRoundSettings = document.querySelector('#site-visual-round-settings');
+  visualRoundToggle?.addEventListener('change',()=>visualRoundSettings?.classList.toggle('hidden',visualRoundToggle.value!=='true'));
   let lastGeocodedAddress = existingLat !== '' && existingLng !== '' ? String(s.address || '').trim() : '';
   let geocodeMeta = s.geocode || null;
   const previousInstructions = String(s.instructions || '').trim();
@@ -3765,6 +4310,12 @@ function showSiteForm(s={}){
         name:fd.get('name'), clientName:fd.get('clientName'), address,
         contactName:fd.get('contactName'), contactPhone:fd.get('contactPhone'), emergencyContact:fd.get('emergencyContact'),
         whatsappQG:fd.get('whatsappQG'), instructions:fd.get('instructions'), isActive:fd.get('isActive')==='true',
+        agentExperienceMode:String(fd.get('agentExperienceMode')||'surveillance'),
+        visualRoundsEnabled:fd.get('visualRoundsEnabled')==='true',
+        visualRoundIntervalMinutes:Math.max(15,Number(fd.get('visualRoundIntervalMinutes')||60)),
+        visualRoundFirstDelayMinutes:Math.max(0,Number(fd.get('visualRoundFirstDelayMinutes')||30)),
+        visualRoundToleranceMinutes:Math.max(0,Number(fd.get('visualRoundToleranceMinutes')||15)),
+        visualRoundReminderMinutes:Math.max(0,Number(fd.get('visualRoundReminderMinutes')||10)),
         planningColor: normalizeHexColor(fd.get('planningColor')) || planningColorForSite(siteId),
         gps:{ lat, lng }, geocode:geocodeMeta,
         updatedAt:serverTimestamp(), updatedBy:currentUser.uid,
@@ -3785,6 +4336,116 @@ function showSiteForm(s={}){
     }
   });
 }
+
+// -------------------- V5.11 · Accès externe Aquila --------------------
+function externalAccessStatus(access){
+  const {start,end}=externalAccessWindow(access),now=Date.now();
+  if(access.archived) return {label:'Archivé',tone:''};
+  if(now<start) return {label:'À venir',tone:'blue'};
+  if(now>end) return {label:'Expiré',tone:''};
+  return {label:'Actif',tone:'green'};
+}
+function externalAccessDomain(url){ try{return new URL(url).hostname;}catch(_){return'';} }
+async function loadJsQrDecoder(){
+  const mod=await import('https://cdn.jsdelivr.net/npm/jsqr@1.4.0/+esm');
+  return mod.default||mod;
+}
+async function decodeQrCanvas(canvas){
+  if('BarcodeDetector' in window){
+    try{
+      const detector=new BarcodeDetector({formats:['qr_code']});
+      const rows=await detector.detect(canvas);
+      if(rows?.[0]?.rawValue) return String(rows[0].rawValue);
+    }catch(_){}
+  }
+  const ctx=canvas.getContext('2d',{willReadFrequently:true});
+  const image=ctx.getImageData(0,0,canvas.width,canvas.height);
+  const jsQR=await loadJsQrDecoder();
+  return jsQR(image.data,image.width,image.height,{inversionAttempts:'attemptBoth'})?.data||'';
+}
+async function decodeQrImageFile(file){
+  const bitmap=await createImageBitmap(file);
+  const max=1800,scale=Math.min(1,max/Math.max(bitmap.width,bitmap.height));
+  const canvas=document.createElement('canvas'); canvas.width=Math.max(1,Math.round(bitmap.width*scale)); canvas.height=Math.max(1,Math.round(bitmap.height*scale));
+  canvas.getContext('2d').drawImage(bitmap,0,0,canvas.width,canvas.height); bitmap.close?.();
+  return decodeQrCanvas(canvas);
+}
+async function decodeQrPdfFile(file){
+  const pdfjs=await import('https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs');
+  if(pdfjs.GlobalWorkerOptions) pdfjs.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs';
+  const pdf=await pdfjs.getDocument({data:new Uint8Array(await file.arrayBuffer())}).promise;
+  const maxPages=Math.min(5,pdf.numPages||1);
+  for(let pageNumber=1;pageNumber<=maxPages;pageNumber++){
+    const page=await pdf.getPage(pageNumber),viewport=page.getViewport({scale:2.2});
+    const canvas=document.createElement('canvas');canvas.width=Math.ceil(viewport.width);canvas.height=Math.ceil(viewport.height);
+    await page.render({canvasContext:canvas.getContext('2d'),viewport}).promise;
+    const value=await decodeQrCanvas(canvas).catch(()=> '');
+    if(value) return value;
+  }
+  return '';
+}
+async function decodeAquilaQrFile(file){
+  if(!file) return '';
+  if(file.type==='application/pdf'||/\.pdf$/i.test(file.name||'')) return decodeQrPdfFile(file);
+  if(String(file.type||'').startsWith('image/')) return decodeQrImageFile(file);
+  throw new Error('Importe un PDF, PNG ou JPG contenant le QR Aquila.');
+}
+function validateExternalAccessUrl(value){
+  try{const url=new URL(String(value||'').trim());return url.protocol==='https:'?url.toString():'';}catch(_){return'';}
+}
+function showAquilaAccessManager(site){
+  if(!site?.id) return toast('Site introuvable.','warning');
+  let accesses=normalizeExternalAccesses(site).slice().sort((a,b)=>externalAccessWindow(b).start-externalAccessWindow(a).start);
+  showModal(`Aquila · ${site.name||'Site'}`,`<div class="aquila-manager">
+    <div class="aquila-manager-hero"><span>ACCÈS EXTERNE DE MISSION</span><h3>QR Aquila indépendant des agents planifiés</h3><p>Crée une période de validité pour la prestation. Tous les agents affectés à ce site pendant cette période verront le même accès, même si le planning change.</p></div>
+    <form id="aquila-access-form">
+      <div class="form-grid"><div class="field"><label>Libellé de la prestation</label><input class="input" name="label" placeholder="Banque X · semaine du 17 au 23 août" required></div><div class="field"><label>Plateforme</label><input class="input" value="Aquila" disabled></div></div>
+      <div class="form-grid"><div class="field"><label>Valide à partir du</label><input class="input" type="datetime-local" name="validFrom" required></div><div class="field"><label>Valide jusqu’au</label><input class="input" type="datetime-local" name="validUntil" required></div></div>
+      <div class="field"><label>Lien contenu dans le QR</label><input class="input mono" id="aquila-url" name="url" type="url" placeholder="https://…" required><div id="aquila-url-status" class="muted">Tu peux coller le lien ou le détecter automatiquement depuis le PDF/QR fourni par Aquila.</div></div>
+      <div class="aquila-import-zone"><label for="aquila-qr-file"><strong>Importer le PDF ou l’image du QR</strong><span>Le fichier est lu localement pour récupérer l’URL. Il n’est pas envoyé à Aquila et n’est pas nécessairement conservé par Sentinelle.</span></label><input id="aquila-qr-file" type="file" accept="application/pdf,image/*" hidden><button class="btn" type="button" id="aquila-qr-pick">Choisir PDF / QR</button><div id="aquila-qr-state" class="muted">Aucun fichier analysé.</div></div>
+      <button class="btn primary full" type="submit">Enregistrer l’accès Aquila</button>
+    </form>
+    <div class="divider"></div>
+    <div class="card-title"><div><h3>Historique des accès</h3><p>Une nouvelle prestation peut utiliser un nouveau QR sans modifier les anciennes périodes.</p></div></div>
+    <div id="aquila-access-list" class="list"></div>
+  </div>`,'wide');
+  const form=document.querySelector('#aquila-access-form'),fileInput=document.querySelector('#aquila-qr-file'),stateBox=document.querySelector('#aquila-qr-state'),urlInput=document.querySelector('#aquila-url'),urlStatus=document.querySelector('#aquila-url-status');
+  const renderList=()=>{
+    const box=document.querySelector('#aquila-access-list');if(!box)return;
+    box.innerHTML=accesses.length?accesses.map(a=>{const st=externalAccessStatus(a);return `<div class="item aquila-access-row"><div class="item-main"><div class="item-title">${safe(a.label||'Mission Aquila')} <span class="pill ${st.tone}">${safe(st.label)}</span></div><div class="item-meta">${safe(dateText(a.validFrom))} → ${safe(dateText(a.validUntil))}<br><span class="mono">${safe(externalAccessDomain(a.url)||a.url||'Lien absent')}</span></div></div><div class="item-actions"><button class="btn small" data-aquila-test="${safe(a.id)}">Tester</button>${!a.archived?`<button class="btn small ghost" data-aquila-archive="${safe(a.id)}">Archiver</button>`:''}</div></div>`}).join(''):'<div class="empty">Aucun accès Aquila enregistré pour ce site.</div>';
+    box.querySelectorAll('[data-aquila-test]').forEach(btn=>btn.addEventListener('click',()=>{const a=accesses.find(x=>x.id===btn.dataset.aquilaTest);if(a?.url)window.open(a.url,'_blank','noopener');}));
+    box.querySelectorAll('[data-aquila-archive]').forEach(btn=>btn.addEventListener('click',async()=>{
+      const row=accesses.find(x=>x.id===btn.dataset.aquilaArchive);if(!row||!confirm('Archiver cet accès Aquila ? Il ne sera plus proposé aux agents.'))return;
+      accesses=accesses.map(x=>x.id===row.id?{...x,archived:true,archivedAt:new Date().toISOString()}:x);
+      await updateDoc(docRef('sites',site.id),{externalAccesses:accesses,updatedAt:serverTimestamp(),updatedBy:currentUser.uid});
+      await addAudit('aquila_access_archived',{siteId:site.id,externalAccessId:row.id});renderList();toast('Accès Aquila archivé.','success');
+    }));
+  };
+  renderList();
+  document.querySelector('#aquila-qr-pick')?.addEventListener('click',()=>fileInput?.click());
+  fileInput?.addEventListener('change',async()=>{
+    const file=fileInput.files?.[0];if(!file)return;
+    stateBox.textContent='Analyse du QR en cours…';
+    try{
+      const decoded=String(await decodeAquilaQrFile(file)||'').trim();
+      const url=validateExternalAccessUrl(decoded);
+      if(!url) throw new Error(decoded?'Le QR a été lu mais ne contient pas une URL HTTPS exploitable.':'Aucun QR lisible détecté dans ce fichier.');
+      urlInput.value=url;urlStatus.textContent=`QR détecté · ${externalAccessDomain(url)}`;urlStatus.className='geocode-status success';stateBox.textContent=`✓ QR détecté dans ${file.name}`;toast('Lien Aquila détecté automatiquement.','success');
+    }catch(error){console.warn(error);stateBox.textContent=error.message||'QR impossible à lire.';toast(`${error.message||'QR impossible à lire.'} Tu peux coller le lien manuellement.`,'warning');}
+  });
+  urlInput?.addEventListener('input',()=>{const url=validateExternalAccessUrl(urlInput.value);urlStatus.textContent=url?`Lien HTTPS valide · ${externalAccessDomain(url)}`:'Lien HTTPS requis';urlStatus.className=`geocode-status ${url?'success':'error'}`;});
+  form?.addEventListener('submit',async e=>{
+    e.preventDefault();const fd=new FormData(form),url=validateExternalAccessUrl(fd.get('url')),from=fromLocalInputValue(fd.get('validFrom')),until=fromLocalInputValue(fd.get('validUntil'));
+    if(!url) return toast('Le lien Aquila doit être une URL HTTPS valide.','warning');
+    if(!from||!until||agentTimestampMs(until)<=agentTimestampMs(from)) return toast('La fin de validité doit être après le début.','warning');
+    const overlap=accesses.some(a=>!a.archived&&String(a.provider||'').toLowerCase()==='aquila'&&externalAccessWindow(a).start<agentTimestampMs(until)&&externalAccessWindow(a).end>agentTimestampMs(from));
+    if(overlap&&!confirm('Une autre période Aquila chevauche ces dates. Enregistrer quand même ?')) return;
+    const access={id:`aquila_${id()}`,provider:'Aquila',label:String(fd.get('label')||'Mission Aquila').trim(),url,validFrom:from,validUntil:until,archived:false,createdAt:new Date().toISOString(),createdBy:currentUser.uid};
+    const next=[access,...accesses];const btn=form.querySelector('button[type="submit"]');btn.disabled=true;
+    try{await updateDoc(docRef('sites',site.id),{externalAccesses:next,updatedAt:serverTimestamp(),updatedBy:currentUser.uid});await addAudit('aquila_access_created',{siteId:site.id,externalAccessId:access.id,validFrom:dateText(from),validUntil:dateText(until),domain:externalAccessDomain(url)});accesses=next;form.reset();renderList();toast('Accès Aquila enregistré pour la période.','success');}catch(error){console.error(error);toast(userFriendlyError(error,'Accès Aquila impossible à enregistrer.'),'error');}finally{btn.disabled=false;}
+  });
+}
+
 async function showCheckpointsManager(siteId){
   showModal('Points de ronde', `<div class="card compact"><form id="checkpoint-form"><div class="form-grid"><div class="field"><label>Nom point</label><input class="input" name="name" required></div><div class="field"><label>Zone</label><input class="input" name="zone"></div><div class="field"><label>Ordre</label><input class="input" name="order" type="number" value="1"></div><div class="field"><label>QR code</label><input class="input mono" name="qrCode" value="QR-${Date.now()}"></div></div><div class="field"><label>Description</label><input class="input" name="description"></div><button class="btn primary full" type="submit">Ajouter point</button></form></div><div class="divider"></div><div id="checkpoint-list" class="list"><div class="empty">Chargement...</div></div>`, 'wide');
   const renderList = async () => {
@@ -3968,10 +4629,10 @@ async function deliverGeneratedDocumentToSupabase(archived){
     const pdfBlob = createGeneratedDocumentPdf(preparedArchived).output('blob');
     const result = await mirrorGeneratedDocument({ firebaseUser:currentUser, profile:currentProfile, document:archived, pdfBlob });
     await updateDoc(docRef('generatedDocuments', archived.id), {
-      deliveryStatus:result?.emailQueued ? 'email_queued' : 'supabase_archived',
+      deliveryStatus:result?.emailStatus || (result?.emailQueued ? 'email_queued' : 'supabase_archived'),
       supabaseDocumentId:result?.documentId || null,
       supabaseStoragePath:result?.storagePath || null,
-      deliveryError:null,
+      deliveryError:result?.emailError || null,
       deliveredAt:serverTimestamp()
     }).catch(()=>{});
     return result;
@@ -4020,9 +4681,9 @@ async function renderQGDocuments(){
         <div class="field"><label>Titre personnalisé (optionnel)</label><input class="input" name="title" placeholder="Ex : Main courante hebdomadaire — Site Alpha"></div>
         <button class="btn primary full" type="submit">Générer et archiver</button>
       </form>
-      <div class="setup-box" style="margin-top:14px">V5.8.7.1 : métadonnées et fichier PDF privé sont archivés dans Supabase. L’envoi e-mail automatique reste désactivé sur le staging.</div>
+      <div class="setup-box" style="margin-top:14px">Métadonnées et PDF privé sont archivés dans Supabase. Pour les clients ayant « e-mail auto » activé, le rapport de mission est envoyé automatiquement après archivage avec relances serveur en cas d’échec.</div>
     </div>
-    <div class="card"><div class="card-title"><div><h2>Documents archivés</h2><p>MCI, missions, rondes, SOS et factures</p></div><div class="field compact-field"><select class="select" id="documents-filter"><option value="">Tous</option><option value="mci">MCI</option><option value="mission">Missions</option><option value="rounds">Rondes</option><option value="alerts">SOS</option><option value="invoice">Factures</option></select></div></div><div id="generated-documents-list" class="list"><div class="empty">Chargement...</div></div></div>
+    <div class="card"><div class="card-title"><div><h2>Documents archivés</h2><p>MCI, missions, rondes, SOS et factures</p></div><div class="btn-row">${isStrictAdmin()?`<button class="btn small" type="button" id="repair-historical-pdfs">Réparer PDF historiques</button>`:''}<div class="field compact-field"><select class="select" id="documents-filter"><option value="">Tous</option><option value="mci">MCI</option><option value="mission">Missions</option><option value="rounds">Rondes</option><option value="alerts">SOS</option><option value="invoice">Factures</option></select></div></div></div><div id="generated-documents-list" class="list"><div class="empty">Chargement...</div></div></div>
   </section>`;
   render(page('Documents', 'Génération, archivage et téléchargement opérationnel', body));
   const [sitesSnap, missionsSnap] = await Promise.all([
@@ -4054,8 +4715,50 @@ async function renderQGDocuments(){
     catch(error){ console.error(error); toast(userFriendlyError(error,'Génération impossible.'),'error'); }
     finally { btn.disabled=false; }
   });
+  document.querySelector('#repair-historical-pdfs')?.addEventListener('click',e=>repairHistoricalPdfStorage(e.currentTarget));
   listenGeneratedDocuments();
 }
+
+function historicalPdfSlug(value){
+  return String(value||'document').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9_-]+/gi,'-').replace(/^-+|-+$/g,'').toLowerCase()||'document';
+}
+async function repairHistoricalPdfStorage(button){
+  if(!isStrictAdmin()) return toast('Réparation réservée au compte admin.','error');
+  if(!navigator.onLine) return toast('Connexion internet requise.','warning');
+  const accepted=confirm('Régénérer et archiver dans Supabase Storage tous les PDF MCI et rapports de mission historiques ? Les données métier ne seront pas supprimées.');
+  if(!accepted)return;
+  const original=button?.textContent||'Réparer PDF historiques';if(button){button.disabled=true;button.textContent='Préparation…';}
+  let ok=0,failed=0,total=0;const errors=[];
+  try{
+    const snap=await getDocs(query(collectionRef('generatedDocuments'),orderBy('createdAt','desc'),limit(250)));
+    const targets=snap.docs.map(d=>({id:d.id,...d.data()})).filter(d=>['mci','mission'].includes(String(d.type||''))&&String(d.status||'active')==='active');
+    total=targets.length;
+    if(!total){toast('Aucun PDF historique MCI/mission à réparer.','success');return;}
+    const client=getSupabaseClient();
+    for(let i=0;i<targets.length;i++){
+      const d=targets[i];
+      if(button)button.textContent=`PDF ${i+1}/${total}…`;
+      try{
+        const prepared=await prepareGeneratedDocumentPhotos(d);
+        const pdfBlob=createGeneratedDocumentPdf(prepared).output('blob');
+        const filename=`${historicalPdfSlug(d.id)}-${historicalPdfSlug(d.title||documentTypeLabel(d.type))}.pdf`;
+        const storagePath=`${stagingConfig.organizationId}/historique-v592/${historicalPdfSlug(d.type)}/${historicalPdfSlug(d.siteId||'sans-site')}/${filename}`;
+        const upload=await client.storage.from(stagingConfig.reportBucket).upload(storagePath,pdfBlob,{contentType:'application/pdf',upsert:true,cacheControl:'3600'});
+        if(upload.error)throw upload.error;
+        const update=await client.from('generated_documents').update({storage_bucket:stagingConfig.reportBucket,storage_path:storagePath,delivery_status:'supabase_archived',updated_at:new Date().toISOString()}).eq('organization_id',stagingConfig.organizationId).eq('firebase_id',d.id);
+        if(update.error)throw update.error;
+        ok++;
+      }catch(error){
+        failed++;errors.push(`${d.id}: ${error?.message||error}`);console.error('Réparation PDF historique impossible',d.id,error);
+      }
+    }
+    await addAudit('historical_pdf_storage_repair',{total,success:ok,failed,version:'5.9.2'}).catch(()=>{});
+    if(failed){toast(`Réparation terminée : ${ok}/${total} PDF archivés, ${failed} erreur(s).`,'warning');console.warn('Erreurs PDF historiques',errors);}
+    else toast(`Réparation terminée : ${ok}/${total} PDF archivés dans Supabase Storage.`,'success');
+  }catch(error){console.error(error);toast(userFriendlyError(error,'Réparation des PDF impossible.'),'error');}
+  finally{if(button){button.disabled=false;button.textContent=original;}}
+}
+
 async function generateAndArchiveDocument(fd, caches={}){
   const type = String(fd.get('type')||'mci');
   const siteId = String(fd.get('siteId')||'');
@@ -4090,19 +4793,64 @@ async function generateAndArchiveDocument(fd, caches={}){
   }
   return archivePdfDocument({ type,title,siteId:siteId||null,siteNom:site?.name||null,missionId,rowCount,payload }, { silent:true });
 }
+function generatedDeliveryStatusMeta(status){
+  const value=String(status||'');
+  const map={
+    sent:{label:'Envoyé au client',cls:'green'},
+    retry_pending:{label:'Relance programmée',cls:'orange'},
+    waiting_pdf:{label:'PDF en attente',cls:'orange'},
+    no_recipient:{label:'Aucun destinataire',cls:'orange'},
+    failed:{label:'Échec envoi',cls:'red'},
+    disabled:{label:'Envoi auto désactivé',cls:''},
+    email_queued:{label:'Envoi en cours',cls:'blue'},
+    supabase_archived:{label:'PDF archivé',cls:'blue'},
+    bridge_failed:{label:'Relance serveur',cls:'orange'},
+    v587_metadata_only:{label:'PDF en préparation',cls:'blue'},
+    pending:{label:'En attente',cls:'blue'}
+  };
+  return map[value]||{label:value?value:'—',cls:''};
+}
+
+async function hydrateGeneratedDeliveryStatuses(rows){
+  const missionIds=(rows||[]).filter(d=>d.type==='mission'&&d.id).map(d=>String(d.id));
+  if(!missionIds.length||!navigator.onLine)return rows;
+  try{
+    const sb=getSupabaseClient();
+    const {data,error}=await sb.from('generated_documents')
+      .select('firebase_id,delivery_status,delivery_attempts,next_delivery_attempt_at,delivery_error,delivered_at,updated_at')
+      .eq('organization_id',stagingConfig.organizationId)
+      .in('firebase_id',missionIds);
+    if(error)throw error;
+    const byId=new Map((data||[]).map(d=>[String(d.firebase_id),d]));
+    return (rows||[]).map(d=>{
+      const remote=byId.get(String(d.id));
+      if(!remote)return d;
+      return {...d,deliveryStatus:remote.delivery_status,deliveryAttempts:remote.delivery_attempts,nextDeliveryAttemptAt:remote.next_delivery_attempt_at,deliveryError:remote.delivery_error,deliveredAt:remote.delivered_at,deliveryUpdatedAt:remote.updated_at};
+    });
+  }catch(error){
+    console.warn('Synchronisation statuts e-mail documents indisponible',error);
+    return rows;
+  }
+}
+
 function listenGeneratedDocuments(){
   const box=document.querySelector('#generated-documents-list'); if(!box)return;
   let rows=[];
   const redraw=()=>{
     const type=document.querySelector('#documents-filter')?.value||'';
     const filtered=rows.filter(d=>!type||d.type===type);
-    box.innerHTML=filtered.length?filtered.map(d=>`<div class="item document-item pdf-document"><div class="item-main"><div class="item-title">${safe(d.title||documentTypeLabel(d.type))} <span class="pill blue">PDF</span></div><div class="item-meta">${safe(documentTypeLabel(d.type))} · ${safe(d.siteNom||'Tous sites')} · ${d.rowCount||0} ligne(s)<br>Créé ${dateText(d.createdAt)} par ${safe(d.createdByNom||'QG')}</div></div><div class="item-actions"><button class="btn small primary" data-open-generated-doc="${safe(d.id)}">Aperçu</button><button class="btn small success" data-download-generated-doc="${safe(d.id)}">Télécharger PDF</button>${isStrictAdmin()?`<button class="btn small danger" data-delete-generated-doc="${safe(d.id)}">Supprimer</button>`:''}</div></div>`).join(''):`<div class="empty">Aucun document PDF archivé.</div>`;
+    box.innerHTML=filtered.length?filtered.map(d=>{const delivery=generatedDeliveryStatusMeta(d.deliveryStatus);return `<div class="item document-item pdf-document"><div class="item-main"><div class="item-title">${safe(d.title||documentTypeLabel(d.type))} <span class="pill blue">PDF</span>${d.type==='mission'?` <span class="pill ${delivery.cls}">${safe(delivery.label)}</span>`:''}</div><div class="item-meta">${safe(documentTypeLabel(d.type))} · ${safe(d.siteNom||'Tous sites')} · ${d.rowCount||0} ligne(s)<br>Créé ${dateText(d.createdAt)} par ${safe(d.createdByNom||'QG')}</div></div><div class="item-actions"><button class="btn small primary" data-open-generated-doc="${safe(d.id)}">Aperçu</button><button class="btn small success" data-download-generated-doc="${safe(d.id)}">Télécharger PDF</button>${d.type==='mission'&&d.deliveryStatus!=='sent'?`<button class="btn small" data-retry-generated-email="${safe(d.id)}">Relancer envoi</button>`:''}${isStrictAdmin()?`<button class="btn small danger" data-delete-generated-doc="${safe(d.id)}">Supprimer</button>`:''}</div></div>`}).join(''):`<div class="empty">Aucun document PDF archivé.</div>`;
     document.querySelectorAll('[data-open-generated-doc]').forEach(btn=>btn.addEventListener('click',()=>openGeneratedDocument(rows.find(d=>d.id===btn.dataset.openGeneratedDoc))));
     document.querySelectorAll('[data-download-generated-doc]').forEach(btn=>btn.addEventListener('click',()=>downloadGeneratedDocument(rows.find(d=>d.id===btn.dataset.downloadGeneratedDoc))));
+    document.querySelectorAll('[data-retry-generated-email]').forEach(btn=>btn.addEventListener('click',()=>retryGeneratedDocumentEmail(rows.find(d=>d.id===btn.dataset.retryGeneratedEmail),btn)));
     document.querySelectorAll('[data-delete-generated-doc]').forEach(btn=>btn.addEventListener('click',()=>requestDeleteGeneratedDocument(rows.find(d=>d.id===btn.dataset.deleteGeneratedDoc))));
   };
   document.querySelector('#documents-filter')?.addEventListener('change',redraw);
-  unsubscribeList.push(onSnapshot(query(collectionRef('generatedDocuments'),orderBy('createdAt','desc'),limit(250)),snap=>{rows=snap.docs.map(d=>({id:d.id,...d.data()}));redraw();},()=>box.innerHTML='<div class="empty">Documents indisponibles. Vérifie les RLS Supabase.</div>'));
+  unsubscribeList.push(onSnapshot(query(collectionRef('generatedDocuments'),orderBy('createdAt','desc'),limit(250)),snap=>{
+    const localRows=snap.docs.map(d=>({id:d.id,...d.data()}));
+    rows=localRows;redraw();
+    hydrateGeneratedDeliveryStatuses(localRows).then(merged=>{rows=merged;redraw();}).catch(()=>{});
+  },()=>box.innerHTML='<div class="empty">Documents indisponibles. Vérifie les RLS Supabase.</div>'));
 }
 function openGeneratedDocument(d){
   if(!d)return;
@@ -4120,6 +4868,27 @@ function printGeneratedDocument(d){
 function downloadGeneratedDocument(d){
   if(!d)return;
   downloadGeneratedPdf(d);
+}
+async function retryGeneratedDocumentEmail(d,button=null){
+  if(!d||d.type!=='mission')return;
+  const original=button?.textContent||'Relancer envoi';
+  if(button){button.disabled=true;button.textContent='Relance…';}
+  try{
+    const sb=getSupabaseClient();
+    const {data:row,error}=await sb.from('generated_documents').select('id').eq('organization_id',stagingConfig.organizationId).eq('firebase_id',d.id).single();
+    if(error)throw error;
+    const invoke=await sb.functions.invoke('send-main-courante',{body:{documentId:row.id,manual:true}});
+    if(invoke.error)throw invoke.error;
+    const status=String(invoke.data?.status||'');
+    if(status==='sent')toast('Main courante envoyée au client.','success');
+    else if(status==='retry_pending'||invoke.data?.queued)toast('Relance enregistrée. Le serveur réessaiera automatiquement.','warning');
+    else if(status==='disabled')toast('Active d’abord « e-mail auto » dans la fiche client.','warning');
+    else if(status==='no_recipient')toast('Aucun destinataire configuré pour ce client.','warning');
+    else toast('Demande de relance prise en compte.','success');
+  }catch(error){
+    console.error(error);
+    toast(userFriendlyError(error,'Relance e-mail impossible.'),'error');
+  }finally{if(button&&button.isConnected){button.disabled=false;button.textContent=original;}}
 }
 function requestDeleteGeneratedDocument(d){
   if(!d)return;
@@ -4599,7 +5368,7 @@ async function ensureSentinelleServiceWorker({cleanupLegacy=false, timeoutMs=800
   const existingUrl = registration?.active?.scriptURL || registration?.waiting?.scriptURL || registration?.installing?.scriptURL || '';
   if (!registration || !/service-worker\.js/i.test(existingUrl)) {
     try {
-      registration = await navigator.serviceWorker.register('./service-worker.js?v=5886', { scope:'./', updateViaCache:'none' });
+      registration = await navigator.serviceWorker.register('./service-worker.js?v=5110', { scope:'./', updateViaCache:'none' });
       window.__SENTINELLE_SW_LAST_ERROR__ = '';
     } catch(error) {
       window.__SENTINELLE_SW_LAST_ERROR__ = error?.message || String(error || 'Échec enregistrement Service Worker');
@@ -5332,8 +6101,17 @@ async function prepareGeneratedDocumentPhotos(d){
   const rows=Array.isArray(p.rows)?p.rows:[];
   if(!rows.length) return d;
   const preparedRows=await Promise.all(rows.map(async row=>{
-    if(!row?.photoUrl || String(row.photoUrl).startsWith('data:image/')) return row;
-    try { return {...row,photoUrl:await imageUrlToDataUrl(row.photoUrl)}; }
+    if(String(row?.photoUrl||'').startsWith('data:image/')) return row;
+    try {
+      let photoUrl=String(row?.photoUrl||'');
+      if(!photoUrl && row?.photoStorageBucket && row?.photoStoragePath){
+        const {data,error}=await getSupabaseClient().storage.from(row.photoStorageBucket).createSignedUrl(row.photoStoragePath,180);
+        if(error) throw error;
+        photoUrl=String(data?.signedUrl||'');
+      }
+      if(!photoUrl) return row;
+      return {...row,photoUrl:await imageUrlToDataUrl(photoUrl),photoAvailable:true};
+    }
     catch(error){ console.warn('Photo PDF non convertie',error); return row; }
   }));
   const byId=new Map(preparedRows.map(row=>[String(row.id||''),row]));

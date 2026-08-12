@@ -1,0 +1,13 @@
+Fichiers à remplacer/ajouter pour V5.9.3 :
+- app.js
+- index.html
+- client-app.js
+- client.html
+- reset-password.html (nouveau)
+- reset-password.js (nouveau)
+- service-worker.js
+- sentinelle-config.js
+- supabase-config.js
+- supabase-bridge.js
+- supabase/functions/admin-manage-user/index.ts (à déployer dans Supabase Edge Functions)
+- README-V5.9.3.md

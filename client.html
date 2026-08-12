@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#102a43">
+  <meta name="robots" content="noindex,nofollow">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Sentinelle Pro">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="application-name" content="Sentinelle Pro">
+  <meta name="description" content="Portail client sécurisé Sentinelle Pro — Azzera Protect">
+  <title>Sentinelle Pro — Espace client</title>
+  <link rel="icon" href="./assets/icons/client-192.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="./assets/icons/client-180.png">
+  <link rel="manifest" href="./manifest-client.json">
+  <link rel="stylesheet" href="./client-style.css?v=597">
+</head>
+<body>
+  <div class="client-background" aria-hidden="true">
+    <div class="client-orb client-orb-a"></div>
+    <div class="client-orb client-orb-b"></div>
+  </div>
+
+  <main id="client-app" class="client-shell auth-shell">
+    <section class="auth-layout">
+      <div class="auth-showcase">
+        <div class="auth-brandline">
+          <span class="brand-mark"><img src="./assets/client-logo.png" alt=""></span>
+          <div>
+            <strong>Sentinelle Pro</strong>
+            <span>par Azzera Protect</span>
+          </div>
+        </div>
+
+        <div class="auth-showcase-copy">
+          <span class="eyebrow-light">PORTAIL CLIENT SÉCURISÉ</span>
+          <h1>Votre sécurité<br>Vos rapports<br><em>Une seule interface</em></h1>
+          <p>Accédez à vos mains courantes et rapports opérationnels dans un espace dédié, sécurisé et disponible à tout moment</p>
+        </div>
+
+        <div class="trust-grid">
+          <div><span class="trust-icon">✓</span><strong>Accès privé</strong><small>Données limitées à vos sites</small></div>
+          <div><span class="trust-icon">↗</span><strong>PDF instantanés</strong><small>Consultation et téléchargement</small></div>
+          <div><span class="trust-icon">24</span><strong>Disponible 24/7</strong><small>Depuis mobile ou ordinateur</small></div>
+        </div>
+      </div>
+
+      <div class="auth-panel">
+        <div class="auth-card">
+          <div class="auth-mobile-brand">
+            <span class="brand-mark"><img src="./assets/client-logo.png" alt="Sentinelle Pro"></span>
+            <div><strong>Sentinelle Pro</strong><span>Espace client</span></div>
+          </div>
+          <span class="eyebrow">CONNEXION CLIENT</span>
+          <h2>Bienvenue</h2>
+          <p class="lead">Connectez-vous pour consulter les documents associés à votre entreprise</p>
+          <form id="client-login-form" class="auth-form">
+            <label>Adresse e-mail
+              <input type="email" name="email" autocomplete="username" inputmode="email" placeholder="vous@entreprise.fr" required>
+            </label>
+            <label>Mot de passe
+              <input type="password" name="password" autocomplete="current-password" placeholder="Votre mot de passe" required>
+            </label>
+            <button type="submit" class="primary-button"><span>Se connecter</span><span class="button-arrow" aria-hidden="true">→</span></button>
+          </form>
+          <button class="link-button" type="button" id="client-forgot-password">Mot de passe oublié ?</button>
+          <div id="client-message" role="status" aria-live="polite"></div>
+          <div class="security-note"><span class="security-dot"></span><span>Connexion sécurisée et accès restreint à votre organisation</span></div>
+        </div>
+      </div>
+    </section>
+  </main>
+  <script type="module" src="./client-app.js?v=597"></script>
+</body>
+</html>
