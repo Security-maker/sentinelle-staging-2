@@ -1,5 +1,5 @@
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
-import { stagingConfig } from './sentinelle-config.js?v=5111s';
+import { stagingConfig } from './sentinelle-config.js?v=5112s';
 
 const CORE = Object.freeze({
   users: { table:'profiles', id:'external_uid' },

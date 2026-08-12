@@ -1,4 +1,4 @@
-// Sentinelle Pro V5.11.1 TEST SAFE — lecture du backend prod, écritures métier en shadow local.
+// Sentinelle Pro V5.11.2 TEST SAFE ULTRA UX — lecture du backend prod, écritures métier en shadow local.
 // Passerelle PDF/e-mail désactivée : aucun e-mail client ni Storage de production depuis le repo test.
 export const supabaseConfig = Object.freeze({
   enabled: false,
