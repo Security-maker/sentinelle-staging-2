@@ -1,12 +1,12 @@
-import { stagingConfig, DEFAULT_QG_WHATSAPP, pushConfig } from './sentinelle-config.js?v=5113s';
-import { supabaseBridgeEnabled, mirrorGeneratedDocument } from './supabase-bridge.js?v=5113s';
+import { stagingConfig, DEFAULT_QG_WHATSAPP, pushConfig } from './sentinelle-config.js?v=5116f';
+import { supabaseBridgeEnabled, mirrorGeneratedDocument } from './supabase-bridge.js?v=5116f';
 import {
   initializeApp, deleteApp, getAuth, setPersistence, browserLocalPersistence, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, onAuthStateChanged, initializeFirestore, persistentLocalCache,
   persistentMultipleTabManager, collection, doc, getDoc, getDocs, addDoc, setDoc, updateDoc, query, where,
   orderBy, limit, onSnapshot, serverTimestamp, Timestamp, runTransaction, deleteDoc, writeBatch, supabaseRuntimeConfigured, getSupabaseClient,
   testShadowModeEnabled, clearTestShadowData, testShadowStats
-} from './supabase-compat.js?v=5113s';
+} from './supabase-compat.js?v=5116f';
 
 const $app = document.querySelector('#app');
 const $toast = document.querySelector('#toast-root');
@@ -1105,7 +1105,7 @@ function shiftSummary(shift){
   </div>`;
 }
 
-// -------------------- V5.11.4 · Agent Experience / Smart MCI --------------------
+// -------------------- V5.11.6 · Agent Experience / FAST MCI contextuelle --------------------
 function syncAgentNightMode(){
   const hour=new Date().getHours();
   document.body.classList.toggle('agent-night-mode', hour>=20 || hour<6);
@@ -1202,26 +1202,90 @@ function rememberAgentMciAction(siteId='',actionId=''){
     localStorage.setItem(key,JSON.stringify([actionId,...rows].slice(0,6)));
   }catch(_){}
 }
+function forgetAgentMciAction(siteId='',actionId=''){
+  if(!actionId)return;
+  try{
+    const key=`sentinelle_mci_recent_${siteId||'global'}`;
+    localStorage.setItem(key,JSON.stringify(agentRecentActionIds(siteId).filter(id=>id!==actionId)));
+  }catch(_){}
+}
+function agentConfiguredQuickActionIds(state={}){
+  const raw=state.site?.agentQuickActionIds;
+  const ids=Array.isArray(raw)?raw:(typeof raw==='string'?raw.split(','):[]);
+  const roundEnabled=Boolean(visualRoundConfig(state.site||{}).enabled);
+  return [...new Set(ids.map(v=>String(v||'').trim()).filter(Boolean))].filter(id=>id!=='__visual_round__'||roundEnabled).filter(id=>id==='__visual_round__'||Boolean(agentActionById(id))).slice(0,6);
+}
+function agentShiftPhase(state={}){
+  const shift=state.shift||{};
+  const now=Date.now(),start=agentTimestampMs(shift.scheduledStart)||agentTimestampMs(shift.startTime),end=agentTimestampMs(shift.scheduledEnd);
+  if(start&&end&&end>start){
+    const ratio=(now-start)/(end-start);
+    if(ratio<=.22)return 'start';
+    if(ratio>=.76)return 'end';
+  }
+  const hour=new Date().getHours();
+  if(hour>=5&&hour<10)return 'start';
+  if(hour>=17||hour<2)return 'end';
+  return 'middle';
+}
+function agentShiftPhaseLabel(state={}){
+  return ({start:'Début de vacation',middle:'En cours de vacation',end:'Fin de vacation'}[agentShiftPhase(state)]||'Mission en cours');
+}
+function agentTimePriorityIds(state={}){
+  const hotel=agentSiteLooksHotel(state),phase=agentShiftPhase(state),roundEnabled=Boolean(visualRoundConfig(state.site||{}).enabled);
+  if(hotel){
+    if(phase==='start') return ['arrivee_employe','cles_client_recuperees','situation_normale',...(roundEnabled?['__visual_round__']:[]),'objet_trouve','depart_employe'];
+    if(phase==='end') return ['depart_employe','cles_client_recuperees',...(roundEnabled?['__visual_round__']:[]),'situation_normale','objet_trouve','eclairage_defectueux'];
+    return ['cles_client_recuperees','objet_trouve','situation_normale',...(roundEnabled?['__visual_round__']:['eclairage_defectueux']),'arrivee_employe','depart_employe'];
+  }
+  if(phase==='start') return ['arrivee_employe','controle_acces','situation_normale',...(roundEnabled?['__visual_round__']:[]),'objet_trouve','arrivee_prestataire'];
+  if(phase==='end') return ['depart_employe',...(roundEnabled?['__visual_round__']:[]),'situation_normale','controle_acces','objet_trouve','depart_prestataire'];
+  return ['situation_normale',...(roundEnabled?['__visual_round__']:[]),'controle_acces','arrivee_employe','depart_employe','objet_trouve'];
+}
 function agentFrequentActions(state={}){
   const roundEnabled=Boolean(visualRoundConfig(state.site||{}).enabled);
   const hotelDefaults=['cles_client_recuperees','objet_trouve','situation_normale',...(roundEnabled?['__visual_round__']:['eclairage_defectueux']),'arrivee_employe','depart_employe'];
   const genericDefaults=['situation_normale',...(roundEnabled?['__visual_round__']:[]),'arrivee_employe','depart_employe','controle_acces','objet_trouve'];
   const defaults=agentSiteLooksHotel(state)?hotelDefaults:genericDefaults;
+  const configured=agentConfiguredQuickActionIds(state);
   const recent=agentRecentActionIds(state.shift?.siteId||state.site?.id||'');
+  const timePriority=agentTimePriorityIds(state);
   const ids=[];
-  [...recent,...defaults].forEach(id=>{if(id&&!ids.includes(id))ids.push(id);});
+  const push=id=>{if(id&&!ids.includes(id)&&(id!=='__visual_round__'||roundEnabled))ids.push(id);};
+  if(configured.length){
+    timePriority.filter(id=>configured.includes(id)).forEach(push);
+    recent.filter(id=>configured.includes(id)).forEach(push);
+    configured.forEach(push);
+  }else{
+    timePriority.forEach(push);
+    recent.forEach(push);
+    defaults.forEach(push);
+  }
   return ids.slice(0,6).map(id=>id==='__visual_round__'?{id:'__visual_round__',icon:'◎',label:'Ronde visuelle',hint:'RAS ou anomalie en quelques secondes'}:agentActionById(id)).filter(Boolean);
 }
 function agentFrequentActionsHtml(state){
-  const actions=agentFrequentActions(state);
-  return `<div class="smart-mci-block"><div class="smart-mci-label"><span>⚡</span><div><strong>Actions fréquentes</strong><small>${agentSiteLooksHotel(state)?'Adaptées à la mission hôtel':'Les plus utiles sur ce poste'}</small></div></div><div class="smart-mci-grid">${actions.map(action=>`<button type="button" class="smart-mci-action" data-smart-mci="${safe(action.id)}"><span>${safe(action.icon||'•')}</span><strong>${safe(action.label)}</strong></button>`).join('')}</div><button type="button" class="smart-mci-all" id="smart-mci-all"><span>＋</span><strong>Voir toutes les situations</strong><em>›</em></button></div>`;
+  const actions=agentFrequentActions(state),primary=actions.slice(0,4),secondary=actions.slice(4,6);
+  const custom=agentConfiguredQuickActionIds(state).length;
+  return `<div class="smart-mci-block fast-mci-block"><div class="smart-mci-label"><span>⚡</span><div><strong>Actions probables maintenant</strong><small>${safe(agentShiftPhaseLabel(state))}${custom?' · raccourcis du site':agentSiteLooksHotel(state)?' · profil hôtel':''}</small></div></div><div class="smart-mci-grid">${primary.map(action=>`<button type="button" class="smart-mci-action ${action.id==='situation_normale'?'one-tap':''}" data-smart-mci="${safe(action.id)}"><span>${safe(action.icon||'•')}</span><strong>${safe(action.label)}</strong>${action.id==='situation_normale'?'<small>1 toucher</small>':''}</button>`).join('')}</div>${secondary.length?`<div class="smart-mci-compact">${secondary.map(action=>`<button type="button" data-smart-mci="${safe(action.id)}"><span>${safe(action.icon||'•')}</span><strong>${safe(action.label)}</strong></button>`).join('')}</div>`:''}<button type="button" class="smart-mci-all" id="smart-mci-all"><span>＋</span><strong>Voir toutes les situations</strong><em>›</em></button></div>`;
+}
+async function saveAgentOneTapAction(state,action,button=null){
+  if(!state?.shift||!action)return;
+  if(button){button.disabled=true;button.classList.add('saving');}
+  try{
+    await saveAgentProfessionalAction(state.shift,action,action.message,null,{state,oneTap:true});
+  }catch(error){
+    console.error(error);toast(userFriendlyError(error,'Action impossible à enregistrer.'),'error');
+    if(button){button.disabled=false;button.classList.remove('saving');}
+  }
 }
 function bindAgentSmartMciButtons(state,root=document){
   root.querySelectorAll?.('[data-smart-mci]').forEach(btn=>btn.addEventListener('click',()=>{
     const id=btn.dataset.smartMci;
     agentHaptic(14);
     if(id==='__visual_round__') return openVisualRoundModal(state.shift,state.site,state);
-    const action=agentActionById(id); if(action) openAgentActionComposer(state,action,{fromSmart:true});
+    const action=agentActionById(id); if(!action)return;
+    if(id==='situation_normale') return saveAgentOneTapAction(state,action,btn);
+    openAgentActionComposer(state,action,{fromSmart:true});
   }));
   root.querySelector?.('#smart-mci-all')?.addEventListener('click',()=>openAgentAllSituations(state));
 }
@@ -1243,7 +1307,9 @@ function openAgentSimpleCategory(state,categoryId){
     const id=btn.dataset.simpleAction;
     agentHaptic(12);
     if(id==='__visual_round__') return openVisualRoundModal(state.shift,state.site,state);
-    const action=agentActionById(id); if(action) openAgentActionComposer(state,action);
+    const action=agentActionById(id); if(!action)return;
+    if(id==='situation_normale') return saveAgentOneTapAction(state,action,btn);
+    openAgentActionComposer(state,action);
   }));
 }
 
@@ -1375,7 +1441,7 @@ function renderAgentCommandDock(state){
   const external=resolveSiteExternalAccess(state.site,state.shift);
   const secondary=ctx.kind!=='mci'?`<button class="agent-simple-secondary-cta" data-command="mci" type="button">＋ Ajouter un autre événement</button>`:'';
   box.innerHTML=`<div class="agent-simple-control">
-    <button class="agent-simple-primary-cta ${safe(ctx.tone)}" data-command="primary" type="button"><span>${ctx.kind==='visual_round'?'◎':ctx.kind==='external'?'↗':ctx.kind==='end'?'■':ctx.kind==='flash'?'⚡':'＋'}</span><strong>${safe(ctx.button)}</strong></button>
+    <button class="agent-simple-primary-cta ${safe(ctx.tone)} ${ctx.kind==='end'?'end-ready':''}" data-command="primary" type="button"><span>${ctx.kind==='visual_round'?'◎':ctx.kind==='external'?'↗':ctx.kind==='end'?'■':ctx.kind==='flash'?'⚡':'＋'}</span><strong>${safe(ctx.button)}</strong>${ctx.kind==='end'?'<small>Horaire terminé · clôture à effectuer</small>':''}</button>
     ${secondary}
     <div class="agent-simple-nav ${external?'has-aquila':''}">
       <button type="button" data-command="mission"><span>⌂</span><strong>Mission</strong></button>
@@ -1394,11 +1460,57 @@ function renderAgentCommandDock(state){
 function renderAgentContextCard(){ /* V5.11.4 : prochaine action intégrée directement dans la carte mission */ }
 function renderAgentSmartActions(){ /* V5.11.4 : remplacé par Smart MCI + catégories de secours */ }
 function openAgentQuickActionsHub(state){ openAgentSimpleFlow(state); }
+function agentMciInstruction(state={}){
+  return String(state.site?.mciQuickInstruction||'').trim();
+}
+function startAgentVoiceDictation(textarea){
+  if(!textarea)return;
+  const Recognition=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!Recognition){
+    textarea.focus();
+    toast('Dictée navigateur indisponible · utilise le micro du clavier pour dicter.','info');
+    return;
+  }
+  try{
+    const recognition=new Recognition();
+    recognition.lang='fr-FR'; recognition.interimResults=false; recognition.maxAlternatives=1;
+    const button=document.querySelector('#agent-voice-dictate');
+    if(button){button.disabled=true;button.classList.add('listening');button.textContent='● Écoute…';}
+    recognition.onresult=e=>{
+      const transcript=String(e.results?.[0]?.[0]?.transcript||'').trim();
+      if(transcript) textarea.value=`${textarea.value.trim()}${textarea.value.trim()?' ':''}${transcript}`.trim();
+      textarea.dispatchEvent(new Event('input',{bubbles:true}));
+    };
+    recognition.onerror=()=>toast('Dictée interrompue. Tu peux aussi utiliser le micro du clavier.','warning');
+    recognition.onend=()=>{if(button){button.disabled=false;button.classList.remove('listening');button.textContent='🎙 Dicter';}textarea.focus();};
+    recognition.start();
+  }catch(_){textarea.focus();toast('Utilise le micro du clavier pour dicter.','info');}
+}
+function showAgentUndoSnackbar({reportRef,shift,action}){
+  if(!reportRef?.id)return;
+  const el=document.createElement('div');
+  el.className='toast success agent-save-toast';
+  el.innerHTML=`<div><strong>${TEST_SAFE?'Enregistré en test':'Enregistré'}</strong><span>${safe(action?.label||'Main courante')} ajoutée</span></div><button type="button">Annuler</button>`;
+  $toast.appendChild(el);
+  let done=false;
+  const timer=setTimeout(()=>{done=true;el.remove();},7000);
+  el.querySelector('button')?.addEventListener('click',async()=>{
+    if(done)return;done=true;clearTimeout(timer);
+    try{
+      await deleteDoc(docRef('reports',reportRef.id));
+      forgetAgentMciAction(shift?.siteId||'',action?.id||'');
+      await addAudit('agent_quick_action_undone',{shiftId:shift?.id||null,reportId:reportRef.id,actionId:action?.id||null}).catch(()=>{});
+      el.remove();toast('Saisie annulée.','info');
+    }catch(error){done=false;toast(userFriendlyError(error,'Annulation impossible.'),'error');}
+  });
+}
 function openAgentActionComposer(state,action,{fromSmart=false}={}){
   const isFree=action.id==='texte_libre';
+  const contextualInstruction=agentMciInstruction(state);
   const quickDetail=action.id==='cles_client_recuperees'?`<div class="quick-detail-box"><label>Chambre / référence <small>facultatif</small></label><input class="input" name="quickDetail" placeholder="Ex. chambre 214" autocomplete="off"></div>`:action.id==='objet_trouve'?`<div class="quick-detail-pair"><div class="quick-detail-box"><label>Objet <small>facultatif</small></label><input class="input" name="quickObject" placeholder="Ex. téléphone" autocomplete="off"></div><div class="quick-detail-box"><label>Lieu <small>facultatif</small></label><input class="input" name="quickPlace" placeholder="Ex. hall" autocomplete="off"></div></div>`:action.id==='eclairage_defectueux'||action.id==='materiel_defectueux_ronde'?`<div class="quick-detail-box"><label>Où se situe l’anomalie ? <small>facultatif</small></label><input class="input" name="quickPlace" placeholder="Ex. couloir 2e étage" autocomplete="off"></div>`:'';
-  showModal(action.label,`<form id="agent-action-compose" class="agent-action-compose simple-compose"><button type="button" class="simple-back-btn" id="simple-compose-back">‹ Retour</button><div class="agent-action-compose-head"><span class="agent-action-icon-big">${safe(action.icon)}</span><div><span>${safe(action.category).toUpperCase()}</span><strong>${safe(action.label)}</strong><p>${isFree?'Rédige un fait précis, neutre et chronologique.':'Le texte est déjà prêt pour le client. Tu peux le modifier avant validation.'}</p></div></div>${quickDetail}<div class="agent-client-copy-label">TEXTE DE LA MAIN COURANTE</div><textarea class="textarea agent-client-copy" name="message" required placeholder="${isFree?'Décris simplement ce qui s’est passé…':''}">${safe(action.message)}</textarea><div class="simple-compose-row"><span class="pill ${action.severity==='Important'?'orange':action.severity==='À surveiller'?'orange':'green'}">${safe(action.severity)}</span>${!isFree?'<button type="button" class="btn small ghost" id="agent-copy-reset">Réinitialiser le texte</button>':''}</div><label class="simple-photo-btn" for="simple-action-photo"><span>📷</span><strong>Ajouter une photo</strong><small>Facultatif</small></label><input id="simple-action-photo" type="file" accept="image/*" capture="environment" hidden><div id="simple-action-photo-preview" class="camera-preview" style="display:none"></div><button class="btn primary full agent-compose-submit" type="submit">Ajouter maintenant</button></form>`);
+  showModal(action.label,`<form id="agent-action-compose" class="agent-action-compose simple-compose"><button type="button" class="simple-back-btn" id="simple-compose-back">‹ Retour</button><div class="agent-action-compose-head"><span class="agent-action-icon-big">${safe(action.icon)}</span><div><span>${safe(action.category).toUpperCase()}</span><strong>${safe(action.label)}</strong><p>${isFree?'Rédige un fait précis, neutre et chronologique.':'Le texte est déjà prêt pour le client. Tu peux le modifier avant validation.'}</p></div></div>${quickDetail}${contextualInstruction?`<div class="agent-mci-context-tip"><span>i</span><div><strong>Consigne du site</strong><small>${safe(contextualInstruction)}</small></div></div>`:''}<div class="agent-client-copy-head"><div class="agent-client-copy-label">TEXTE DE LA MAIN COURANTE</div><button type="button" class="agent-voice-btn" id="agent-voice-dictate">🎙 Dicter</button></div><textarea class="textarea agent-client-copy" name="message" required placeholder="${isFree?'Décris simplement ce qui s’est passé…':''}">${safe(action.message)}</textarea><div class="simple-compose-row"><span class="pill ${action.severity==='Important'?'orange':action.severity==='À surveiller'?'orange':'green'}">${safe(action.severity)}</span>${!isFree?'<button type="button" class="btn small ghost" id="agent-copy-reset">Réinitialiser le texte</button>':''}</div><label class="simple-photo-btn" for="simple-action-photo"><span>📷</span><strong>Ajouter une photo</strong><small>Facultatif</small></label><input id="simple-action-photo" type="file" accept="image/*" capture="environment" hidden><div id="simple-action-photo-preview" class="camera-preview" style="display:none"></div><button class="btn primary full agent-compose-submit" type="submit">Ajouter maintenant</button></form>`);
   const form=document.querySelector('#agent-action-compose'); let photo=null;
+  document.querySelector('#agent-voice-dictate')?.addEventListener('click',()=>startAgentVoiceDictation(form?.elements?.message));
   document.querySelector('#simple-compose-back')?.addEventListener('click',()=>fromSmart?openAgentSimpleFlow(state):openAgentSimpleCategory(state,agentSimpleCategories(state).find(c=>c.actions.includes(action.id))?.id||'incident'));
   document.querySelector('#agent-copy-reset')?.addEventListener('click',()=>{if(form?.message)form.message.value=action.message;});
   document.querySelector('#simple-action-photo')?.addEventListener('change',async event=>{
@@ -1426,19 +1538,44 @@ function openAgentActionComposer(state,action,{fromSmart=false}={}){
     await saveAgentProfessionalAction(state.shift,action,message,photo).catch(error=>{console.error(error);toast(userFriendlyError(error,'Action impossible à enregistrer.'),'error');if(button){button.disabled=false;button.textContent='Ajouter maintenant';}});
   });
 }
-async function saveAgentProfessionalAction(shift,action,message,photo=null){
-  await addDoc(collectionRef('reports'),{agentId:currentUser.uid,agentNom:`${currentProfile.prenom||''} ${currentProfile.nom||''}`.trim(),siteId:shift.siteId,siteNom:shift.siteNom,shiftId:shift.id,missionId:shift.missionId||null,category:action.category,severity:action.severity||'Normal',message,status:'new',isLocked:true,eventType:'quick_action',quickActionId:action.id,quickActionLabel:action.label,photoUrl:photo?.dataUrl||null,photoAvailable:Boolean(photo?.dataUrl),photoBytes:Number(photo?.bytes||0),photoMimeType:photo?.mimeType||null,photoWidth:Number(photo?.width||0),photoHeight:Number(photo?.height||0),photoCapturedAt:photo?.capturedAt||null,createdAt:serverTimestamp(),createdBy:currentUser.uid});
-  await addAudit('agent_quick_action',{shiftId:shift.id,siteId:shift.siteId,label:action.label,actionId:action.id,photo:Boolean(photo?.dataUrl)});
+async function saveAgentProfessionalAction(shift,action,message,photo=null,options={}){
+  const reportRef=await addDoc(collectionRef('reports'),{agentId:currentUser.uid,agentNom:`${currentProfile.prenom||''} ${currentProfile.nom||''}`.trim(),siteId:shift.siteId,siteNom:shift.siteNom,shiftId:shift.id,missionId:shift.missionId||null,category:action.category,severity:action.severity||'Normal',message,status:'new',isLocked:true,eventType:'quick_action',quickActionId:action.id,quickActionLabel:action.label,photoUrl:photo?.dataUrl||null,photoAvailable:Boolean(photo?.dataUrl),photoBytes:Number(photo?.bytes||0),photoMimeType:photo?.mimeType||null,photoWidth:Number(photo?.width||0),photoHeight:Number(photo?.height||0),photoCapturedAt:photo?.capturedAt||null,createdAt:serverTimestamp(),createdBy:currentUser.uid});
+  await addAudit('agent_quick_action',{shiftId:shift.id,siteId:shift.siteId,label:action.label,actionId:action.id,photo:Boolean(photo?.dataUrl),oneTap:Boolean(options.oneTap)});
   rememberAgentMciAction(shift.siteId,action.id);
-  agentHaptic(28);closeModal();toast(`${action.label} ajouté à la main courante.`,'success');
+  agentHaptic(options.oneTap?18:28);closeModal();
+  showAgentUndoSnackbar({reportRef,shift,action});
+  return reportRef;
 }
 
 function renderAgentLiveTimeline(state){
   const box=document.querySelector('#agent-live-timeline'); if(box) box.innerHTML=agentExperienceTimelineHtml(state.reports);
   const count=document.querySelector('#agent-live-count'); if(count) count.textContent=`${state.reports.length} événement${state.reports.length>1?'s':''}`;
 }
+function renderAgentEndMissionEmphasis(state){
+  const zone=document.querySelector('.agent-end-zone');
+  const button=document.querySelector('#end-shift-btn');
+  if(!zone||!button)return;
+  const progress=missionProgressState(state.shift);
+  const end=agentTimestampMs(state.shift.scheduledEnd);
+  zone.classList.remove('near-end','ready');
+  button.className='btn ghost full';
+  if(progress.ended){
+    zone.classList.add('ready');
+    button.className='agent-end-mission-ready';
+    button.innerHTML='<span>■</span><strong>Terminer ma mission</strong><small>Horaire prévu terminé · clôture à effectuer</small>';
+    return;
+  }
+  if(progress.nearEnd&&end){
+    zone.classList.add('near-end');
+    const mins=Math.max(1,Math.ceil((end-Date.now())/60000));
+    button.className='agent-end-mission-soon';
+    button.innerHTML=`<span>◷</span><strong>Terminer ma mission</strong><small>Fin prévue dans ${mins} min · ne clôture qu'à la fin réelle du service</small>`;
+    return;
+  }
+  button.textContent='Terminer ma mission';
+}
 function refreshAgentExperience(state){
-  renderAgentExperienceHero(state); renderAgentCommandDock(state); renderAgentLiveTimeline(state);
+  renderAgentExperienceHero(state); renderAgentCommandDock(state); renderAgentLiveTimeline(state); renderAgentEndMissionEmphasis(state);
 }
 
 async function initAgentExperience(shift){
@@ -1755,6 +1892,7 @@ async function endShift(shift){
     showModal('Terminer la mission', `<form id="end-shift-form" class="end-shift-flow">
       <div class="end-shift-hero"><span>POSTE EN COURS DEPUIS</span><strong>${elapsedShiftText(shift.startTime)}</strong><p>${safe(shift.siteNom)} · prise de poste ${dateText(shift.startTime)}</p></div>
       <div class="mission-kpis"><div class="mini-kpi"><strong>${reportsSnap.size}</strong><span>Rapports</span></div><div class="mini-kpi green"><strong>${roundsTotal}</strong><span>Rondes</span></div><div class="mini-kpi ${incidentsCount?'orange':'green'}"><strong>${incidentsCount}</strong><span>Événements</span></div><div class="mini-kpi ${score < 70 ? 'red' : score < 90 ? 'orange' : 'green'}"><strong>${score}%</strong><span>Conformité</span></div></div>
+      <div class="end-fast-checklist"><div><span>✓</span><strong>Main courante</strong><small>${reportsSnap.size} événement${reportsSnap.size>1?'s':''} enregistré${reportsSnap.size>1?'s':''}</small></div><div class="${roundsRequired&&!roundsTotal?'warn':''}"><span>${roundsRequired&&!roundsTotal?'!':'✓'}</span><strong>Rondes / surveillance</strong><small>${roundsRequired?(roundsTotal?`${roundsTotal} ronde${roundsTotal>1?'s':''} tracée${roundsTotal>1?'s':''}`:'À vérifier avant clôture'):'Aucune ronde obligatoire'}</small></div><div><span>→</span><strong>Transmission</strong><small>Complète uniquement ce qui est utile à l’agent suivant</small></div></div>
       <div class="setup-box ${roundsRequired&&['due','overdue'].includes(roundCloseState.status)?'warning-copy':''}">${roundsRequired?(roundsTotal?`✓ ${roundsTotal} ronde${roundsTotal>1?'s':''} enregistrée${roundsTotal>1?'s':''} sur cette vacation.`:'Aucune ronde visuelle enregistrée sur cette vacation.'):'Ce poste ne comporte aucune ronde obligatoire : aucune pénalité de conformité n’est appliquée.'}</div>
       <div class="field"><label>Transmission pour l’agent suivant</label><textarea class="textarea" name="handoverNote" placeholder="RAS, point à surveiller, incident en cours, consigne client..."></textarea></div>
       <label class="checkline"><input type="checkbox" name="certify" required> Je confirme avoir terminé mon service et transmis les informations utiles.</label>
@@ -4372,11 +4510,19 @@ function renderSitesTable(rows){
   const box = document.querySelector('#sites-table');
   if (!rows.length) return box.innerHTML = `<div class="empty">Aucun site configuré.</div>`;
   const billingHead = isStrictAdmin() ? '<th>Tarif horaire</th>' : '';
-  box.innerHTML = `<table class="table"><thead><tr><th>Couleur</th><th>Site</th><th>Client</th><th>Expérience agent</th><th>Adresse</th>${billingHead}<th>Actif</th><th>Action</th></tr></thead><tbody>${rows.map(s=>{const color=normalizeHexColor(s.planningColor)||planningColorForSite(s.id);const ext=resolveSiteExternalAccess(s,null);const mode=agentMode(s);return `<tr><td><span class="site-color-swatch" style="background:${color}" title="${color}"></span></td><td>${safe(s.name)}</td><td>${safe(s.clientName || '')}</td><td><span class="pill blue">${safe(agentModeLabel(mode))}</span>${s.visualRoundsEnabled?'<br><span class="pill orange">Rondes visuelles</span>':''}${ext?'<br><span class="pill green">Aquila actif</span>':''}</td><td>${safe(s.address || '')}</td>${isStrictAdmin()?`<td>${s.hourlyRate?money(s.hourlyRate):'—'}</td>`:''}<td>${s.isActive?'Oui':'Non'}</td><td><div class="table-actions"><button class="btn small" data-edit-site="${safe(s.id)}">Modifier</button><button class="btn small" data-aquila-site="${safe(s.id)}">Aquila</button><button class="btn small ghost" data-points-site="${safe(s.id)}">Ronde QR</button>${isStrictAdmin()?`<button class="btn small danger" data-delete-site="${safe(s.id)}">Supprimer</button>`:''}</div></td></tr>`}).join('')}</tbody></table>`;
+  box.innerHTML = `<table class="table"><thead><tr><th>Couleur</th><th>Site</th><th>Client</th><th>Expérience agent</th><th>Adresse</th>${billingHead}<th>Actif</th><th>Action</th></tr></thead><tbody>${rows.map(s=>{const color=normalizeHexColor(s.planningColor)||planningColorForSite(s.id);const ext=resolveSiteExternalAccess(s,null);const mode=agentMode(s);return `<tr><td><span class="site-color-swatch" style="background:${color}" title="${color}"></span></td><td>${safe(s.name)}</td><td>${safe(s.clientName || '')}</td><td><span class="pill blue">${safe(agentModeLabel(mode))}</span>${s.visualRoundsEnabled?'<br><span class="pill orange">Rondes visuelles</span>':''}${Array.isArray(s.agentQuickActionIds)&&s.agentQuickActionIds.length?`<br><span class="pill blue">${s.agentQuickActionIds.length} raccourcis MCI</span>`:''}${ext?'<br><span class="pill green">Aquila actif</span>':''}</td><td>${safe(s.address || '')}</td>${isStrictAdmin()?`<td>${s.hourlyRate?money(s.hourlyRate):'—'}</td>`:''}<td>${s.isActive?'Oui':'Non'}</td><td><div class="table-actions"><button class="btn small" data-edit-site="${safe(s.id)}">Modifier</button><button class="btn small" data-aquila-site="${safe(s.id)}">Aquila</button><button class="btn small ghost" data-points-site="${safe(s.id)}">Ronde QR</button>${isStrictAdmin()?`<button class="btn small danger" data-delete-site="${safe(s.id)}">Supprimer</button>`:''}</div></td></tr>`}).join('')}</tbody></table>`;
   document.querySelectorAll('[data-edit-site]').forEach(btn => btn.addEventListener('click', () => showSiteForm(rows.find(s=>s.id===btn.dataset.editSite))));
   document.querySelectorAll('[data-aquila-site]').forEach(btn => btn.addEventListener('click', () => showAquilaAccessManager(rows.find(s=>s.id===btn.dataset.aquilaSite))));
   document.querySelectorAll('[data-points-site]').forEach(btn => btn.addEventListener('click', () => showCheckpointsManager(btn.dataset.pointsSite)));
   document.querySelectorAll('[data-delete-site]').forEach(btn => btn.addEventListener('click', () => requestDeleteSite(rows.find(s=>s.id===btn.dataset.deleteSite))));
+}
+function siteQuickActionIds(site={}){
+  const raw=site.agentQuickActionIds;
+  return Array.isArray(raw)?raw.map(String).filter(Boolean).slice(0,6):[];
+}
+function siteQuickActionOptions(selected=''){
+  const choices=[{id:'__visual_round__',label:'Ronde visuelle (si activée)'},...agentActionLibrary().map(a=>({id:a.id,label:`${a.label} · ${a.category}`}))];
+  return `<option value="">Automatique</option>${choices.map(c=>`<option value="${safe(c.id)}" ${selected===c.id?'selected':''}>${safe(c.label)}</option>`).join('')}`;
 }
 function showSiteForm(s={}){
   const existingLat = s.gps?.lat ?? s.latitude ?? '';
@@ -4406,6 +4552,11 @@ function showSiteForm(s={}){
       <div class="form-grid"><div class="field"><label>Fréquence</label><div class="input-suffix"><input class="input" type="number" min="15" max="720" step="5" name="visualRoundIntervalMinutes" value="${safe(s.visualRoundIntervalMinutes||60)}"><span>min</span></div></div><div class="field"><label>Première ronde après prise de poste</label><div class="input-suffix"><input class="input" type="number" min="0" max="720" step="5" name="visualRoundFirstDelayMinutes" value="${safe(s.visualRoundFirstDelayMinutes??30)}"><span>min</span></div></div></div>
       <div class="form-grid"><div class="field"><label>Tolérance avant retard</label><div class="input-suffix"><input class="input" type="number" min="0" max="120" step="5" name="visualRoundToleranceMinutes" value="${safe(s.visualRoundToleranceMinutes??15)}"><span>min</span></div></div><div class="field"><label>Rappel avant ronde</label><div class="input-suffix"><input class="input" type="number" min="0" max="60" step="5" name="visualRoundReminderMinutes" value="${safe(s.visualRoundReminderMinutes??10)}"><span>min</span></div></div></div>
       <div class="setup-box">Une ronde visuelle se valide directement depuis l’accueil agent et crée une entrée dans la main courante. Elle n’ouvre jamais le module Ronde QR/NFC.</div>
+    </div>
+    <div class="site-fast-mci-config">
+      <div class="site-fast-mci-head"><strong>Raccourcis MCI du site</strong><small>Laisse sur Automatique pour que Sentinelle choisisse. Sinon, sélectionne jusqu’à 6 actions que l’agent verra en priorité.</small></div>
+      <div class="site-fast-mci-grid">${Array.from({length:6},(_,i)=>{const selected=siteQuickActionIds(s)[i]||'';return `<div class="field"><label>Raccourci ${i+1}</label><select class="select" name="agentQuickAction${i+1}">${siteQuickActionOptions(selected)}</select></div>`}).join('')}</div>
+      <div class="field"><label>Consigne MCI rapide <small>facultatif</small></label><input class="input" name="mciQuickInstruction" value="${safe(s.mciQuickInstruction||'')}" placeholder="Ex. Pour les clés client, renseigner le numéro de chambre"></div>
     </div>
   </section>
   <details class="advanced-coordinates"><summary>Réglage manuel de la position (facultatif)</summary><div class="form-grid"><div class="field"><label>Latitude</label><input class="input mono" id="site-latitude" name="latitude" type="number" step="any" value="${safe(existingLat)}" placeholder="43.433"></div><div class="field"><label>Longitude</label><input class="input mono" id="site-longitude" name="longitude" type="number" step="any" value="${safe(existingLng)}" placeholder="6.737"></div></div></details>
@@ -4475,6 +4626,8 @@ function showSiteForm(s={}){
         contactName:fd.get('contactName'), contactPhone:fd.get('contactPhone'), emergencyContact:fd.get('emergencyContact'),
         whatsappQG:fd.get('whatsappQG'), instructions:fd.get('instructions'), isActive:fd.get('isActive')==='true',
         agentExperienceMode:String(fd.get('agentExperienceMode')||'surveillance'),
+        agentQuickActionIds:[1,2,3,4,5,6].map(i=>String(fd.get(`agentQuickAction${i}`)||'').trim()).filter((id,index,arr)=>id&&arr.indexOf(id)===index),
+        mciQuickInstruction:String(fd.get('mciQuickInstruction')||'').trim(),
         visualRoundsEnabled:fd.get('visualRoundsEnabled')==='true',
         visualRoundIntervalMinutes:Math.max(15,Number(fd.get('visualRoundIntervalMinutes')||60)),
         visualRoundFirstDelayMinutes:Math.max(0,Number(fd.get('visualRoundFirstDelayMinutes')||30)),

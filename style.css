@@ -1212,3 +1212,40 @@ body{padding-top:28px}
   .smart-mci-grid{gap:7px}.smart-mci-action{min-height:70px;padding:9px 10px;border-radius:15px}.smart-mci-action>span{width:27px;height:27px}.smart-mci-action>strong{font-size:9.8px}.smart-mci-all{min-height:46px}.quick-detail-pair{grid-template-columns:1fr}.simple-compose .agent-client-copy{min-height:112px}.agent-compose-submit{min-height:56px}
 }
 @media(max-width:360px){.smart-mci-action{min-height:66px}.smart-mci-action>strong{font-size:9.2px}.smart-mci-label small{display:none}}
+
+
+/* =========================================================
+   V5.11.5 TEST SAFE — FIN DE MISSION PRIORITAIRE
+   Pré-alerte douce à T-15 min, action dominante à l'heure de fin.
+   ========================================================= */
+.agent-end-zone.near-end{padding:9px;border-radius:18px;border:1px solid rgba(255,159,28,.18);background:rgba(255,159,28,.035)}
+.agent-end-mission-soon{width:100%;min-height:58px;border-radius:16px;border:1px solid rgba(255,159,28,.32);background:linear-gradient(135deg,rgba(255,159,28,.13),rgba(255,196,94,.07));color:#ffd28c;display:grid;grid-template-columns:32px 1fr;grid-template-rows:auto auto;column-gap:9px;align-items:center;padding:9px 12px;text-align:left}
+.agent-end-mission-soon>span{grid-row:1/3;width:32px;height:32px;border-radius:11px;display:grid;place-items:center;background:rgba(255,159,28,.13);font-size:16px}
+.agent-end-mission-soon>strong{font-size:11px;line-height:1.2}.agent-end-mission-soon>small{font-size:8px;line-height:1.3;color:#d9b16f}
+.agent-end-zone.ready{position:relative;padding:10px;border-radius:20px;border:1px solid rgba(255,159,28,.40);background:linear-gradient(145deg,rgba(255,159,28,.13),rgba(255,95,31,.055));box-shadow:0 12px 36px rgba(255,129,0,.10);overflow:hidden}
+.agent-end-zone.ready:before{content:"";position:absolute;inset:-70% -25%;background:linear-gradient(110deg,transparent 42%,rgba(255,255,255,.09) 50%,transparent 58%);animation:endMissionSweep 3.2s ease-in-out infinite;pointer-events:none}
+.agent-end-mission-ready{position:relative;width:100%;min-height:72px;border:1px solid rgba(255,185,82,.52);border-radius:17px;background:linear-gradient(135deg,#ff9417,#ffc45e);color:#231000;display:grid;grid-template-columns:40px 1fr;grid-template-rows:auto auto;column-gap:10px;align-items:center;padding:10px 14px;text-align:left;font-weight:900;box-shadow:0 10px 30px rgba(255,139,0,.24);animation:endMissionPulse 1.9s ease-in-out infinite}
+.agent-end-mission-ready>span{grid-row:1/3;width:40px;height:40px;border-radius:13px;background:rgba(255,255,255,.24);display:grid;place-items:center;font-size:19px}.agent-end-mission-ready>strong{font-size:14px;line-height:1.15}.agent-end-mission-ready>small{font-size:9px;line-height:1.3;color:rgba(35,16,0,.70)}
+.agent-simple-primary-cta.end-ready{position:relative;min-height:78px;flex-wrap:wrap;column-gap:11px;row-gap:1px;animation:endMissionPulse 1.9s ease-in-out infinite;box-shadow:0 15px 42px rgba(255,139,0,.30)}
+.agent-simple-primary-cta.end-ready>strong{font-size:16px}.agent-simple-primary-cta.end-ready>small{flex-basis:100%;text-align:center;font-size:8.5px;letter-spacing:.035em;color:rgba(35,16,0,.68);margin-top:-4px}
+@keyframes endMissionPulse{0%,100%{transform:scale(1);filter:brightness(1)}50%{transform:scale(1.012);filter:brightness(1.055)}}
+@keyframes endMissionSweep{0%,45%{transform:translateX(-55%)}75%,100%{transform:translateX(55%)}}
+@media(max-width:620px){.agent-end-mission-ready{min-height:68px}.agent-simple-primary-cta.end-ready{min-height:72px}.agent-end-mission-soon>small{font-size:7.5px}}
+@media(prefers-reduced-motion:reduce){.agent-end-zone.ready:before,.agent-end-mission-ready,.agent-simple-primary-cta.end-ready{animation:none!important}}
+
+
+/* =========================================================
+   V5.11.6 TEST SAFE — FAST MCI
+   Une action évidente, peu de choix visibles, retour immédiat.
+   ========================================================= */
+.smart-mci-action.one-tap{border-color:rgba(0,208,132,.24);background:linear-gradient(155deg,rgba(0,208,132,.09),rgba(255,255,255,.022))}
+.smart-mci-action.one-tap>span{background:rgba(0,208,132,.12);color:#5ee7b2}.smart-mci-action.one-tap>small{font-size:7.5px;font-weight:900;color:#77e7ba;letter-spacing:.045em;text-transform:uppercase}
+.smart-mci-action.saving{opacity:.55;pointer-events:none}
+.smart-mci-compact{display:grid;grid-template-columns:1fr 1fr;gap:7px}.smart-mci-compact button{min-height:44px;border:1px solid rgba(255,255,255,.065);border-radius:14px;background:rgba(255,255,255,.025);color:var(--cold);display:grid;grid-template-columns:24px minmax(0,1fr);gap:7px;align-items:center;text-align:left;padding:7px 9px}.smart-mci-compact button>span{width:24px;height:24px;border-radius:8px;background:rgba(0,184,255,.08);color:#64d0ff;display:grid;place-items:center}.smart-mci-compact button strong{font-size:9px;line-height:1.2}.smart-mci-compact button:active{background:rgba(0,184,255,.08);transform:scale(.985)}
+.agent-client-copy-head{display:flex;align-items:center;justify-content:space-between;gap:10px}.agent-voice-btn{border:1px solid rgba(100,208,255,.19);border-radius:999px;background:rgba(0,184,255,.055);color:#b8eaff;min-height:34px;padding:6px 10px;font-size:8.5px;font-weight:900}.agent-voice-btn.listening{border-color:rgba(255,95,86,.35);background:rgba(255,95,86,.10);color:#ffaaa4}.agent-voice-btn:disabled{opacity:.75}
+.agent-mci-context-tip{display:grid;grid-template-columns:30px 1fr;gap:8px;align-items:start;border:1px solid rgba(100,208,255,.13);border-radius:14px;background:rgba(0,184,255,.035);padding:9px 10px}.agent-mci-context-tip>span{width:30px;height:30px;border-radius:10px;background:rgba(0,184,255,.10);color:#64d0ff;display:grid;place-items:center;font-weight:900}.agent-mci-context-tip strong{display:block;font-size:9px;color:#b8eaff}.agent-mci-context-tip small{display:block;margin-top:2px;font-size:8px;line-height:1.4;color:var(--metal)}
+.toast.agent-save-toast{display:flex;align-items:center;justify-content:space-between;gap:14px;min-width:min(360px,calc(100vw - 28px));padding:11px 12px}.toast.agent-save-toast>div{display:grid;gap:2px}.toast.agent-save-toast strong{font-size:11px}.toast.agent-save-toast span{font-size:8px;opacity:.8}.toast.agent-save-toast button{border:0;border-radius:999px;background:rgba(255,255,255,.14);color:inherit;padding:7px 11px;font-size:9px;font-weight:900}
+.site-fast-mci-config{display:grid;gap:12px;margin-top:14px;padding-top:14px;border-top:1px solid rgba(100,208,255,.12)}.site-fast-mci-head{display:grid;gap:4px}.site-fast-mci-head strong{font-size:12px}.site-fast-mci-head small{font-size:9px;line-height:1.45;color:var(--metal)}.site-fast-mci-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}
+.end-fast-checklist{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.end-fast-checklist>div{display:grid;grid-template-columns:27px 1fr;grid-template-rows:auto auto;column-gap:7px;align-items:center;border:1px solid rgba(0,208,132,.14);background:rgba(0,208,132,.035);border-radius:14px;padding:8px 9px}.end-fast-checklist>div>span{grid-row:1/3;width:27px;height:27px;border-radius:9px;background:rgba(0,208,132,.10);color:#5ee7b2;display:grid;place-items:center;font-weight:900}.end-fast-checklist strong{font-size:9px}.end-fast-checklist small{font-size:7.5px;color:var(--metal);line-height:1.3}.end-fast-checklist>div.warn{border-color:rgba(255,159,28,.22);background:rgba(255,159,28,.055)}.end-fast-checklist>div.warn>span{background:rgba(255,159,28,.12);color:#ffd28c}
+@media(max-width:720px){.site-fast-mci-grid{grid-template-columns:1fr 1fr}.end-fast-checklist{grid-template-columns:1fr}.smart-mci-compact{grid-template-columns:1fr 1fr}}
+@media(max-width:360px){.smart-mci-compact{grid-template-columns:1fr}.agent-client-copy-head{align-items:flex-end}.agent-voice-btn{padding:6px 8px}.site-fast-mci-grid{grid-template-columns:1fr}}
