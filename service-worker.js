@@ -1,14 +1,14 @@
-const CACHE_NAME = 'sentinelle-pro-v5-11-0-agent-experience-test';
-const CDN_CACHE_NAME = 'sentinelle-cdn-v5-11-0';
+const CACHE_NAME = 'sentinelle-pro-v5-11-1-test-safe';
+const CDN_CACHE_NAME = 'sentinelle-cdn-v5-11-1-safe';
 const APP_SHELL = [
   './',
   './index.html',
-  './style.css?v=5110',
-  './app.js?v=5110',
-  './sentinelle-config.js',
-  './supabase-compat.js?v=593',
-  './supabase-config.js',
-  './supabase-bridge.js',
+  './style.css?v=5111s',
+  './app.js?v=5111s',
+  './sentinelle-config.js?v=5111s',
+  './supabase-compat.js?v=5111s',
+  './supabase-config.js?v=5111s',
+  './supabase-bridge.js?v=5111s',
   './manifest.json',
   './manifest-client.json',
   './offline.html',

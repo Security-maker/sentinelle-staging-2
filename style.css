@@ -1097,3 +1097,24 @@ body{padding-top:28px}
 @media (max-width:900px){.agent-xp-grid{grid-template-columns:1fr}.agent-mission-hero{grid-template-columns:160px minmax(0,1fr)}.agent-progress-ring{width:150px;height:150px}.agent-progress-core{width:132px;height:132px}.agent-progress-core strong{font-size:27px}.agent-mission-copy h1{font-size:28px}}
 @media (max-width:620px){.agent-mission-hero{grid-template-columns:1fr;text-align:center;padding:18px;gap:16px;border-radius:24px}.agent-progress-ring{margin:0 auto}.agent-mission-copy>p{font-size:12px}.agent-mission-meta{justify-content:center}.agent-context-card{grid-template-columns:1fr;padding:16px}.agent-context-cta{width:100%;min-width:0}.agent-context-secondary{display:grid}.agent-context-secondary span{width:100%;text-align:left}.agent-smart-actions{grid-template-columns:1fr 1fr}.agent-smart-action{min-height:70px}.agent-secondary-actions{display:grid;grid-template-columns:1fr 1fr}.agent-secondary-actions .btn{width:100%}.agent-live-event{grid-template-columns:44px 26px minmax(0,1fr);gap:8px}.agent-live-event:not(:last-child)::after{left:56px}.agent-offshift-hero{flex-direction:column;border-radius:22px}.agent-offshift-hero h1{font-size:25px}.visual-round-choice{grid-template-columns:1fr}.aquila-manager-hero{padding:15px}.site-agent-experience-config{padding:14px}}
 .agent-smart-action.external-action{border-color:rgba(100,208,255,.28);background:rgba(100,208,255,.055)}.agent-smart-action.external-action>span{color:#64d0ff;background:rgba(100,208,255,.10)}
+
+/* V5.11.1 TEST SAFE */
+.test-safe-banner{
+  margin:0 0 16px;
+  padding:11px 14px;
+  border:1px solid rgba(255,184,77,.36);
+  border-radius:14px;
+  background:linear-gradient(135deg,rgba(87,52,6,.48),rgba(23,29,39,.88));
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:14px;
+  box-shadow:0 8px 28px rgba(0,0,0,.18);
+}
+.test-safe-banner>div{display:flex;flex-direction:column;gap:2px;min-width:0}
+.test-safe-banner strong{font-size:12px;letter-spacing:.11em;color:#ffca78}
+.test-safe-banner span{font-size:12px;line-height:1.4;color:rgba(255,255,255,.72)}
+@media(max-width:680px){
+  .test-safe-banner{align-items:flex-start;flex-direction:column}
+  .test-safe-banner .btn{width:100%}
+}

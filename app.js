@@ -1,14 +1,16 @@
-import { stagingConfig, DEFAULT_QG_WHATSAPP, pushConfig } from './sentinelle-config.js';
-import { supabaseBridgeEnabled, mirrorGeneratedDocument } from './supabase-bridge.js?v=510';
+import { stagingConfig, DEFAULT_QG_WHATSAPP, pushConfig } from './sentinelle-config.js?v=5111s';
+import { supabaseBridgeEnabled, mirrorGeneratedDocument } from './supabase-bridge.js?v=5111s';
 import {
   initializeApp, deleteApp, getAuth, setPersistence, browserLocalPersistence, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, onAuthStateChanged, initializeFirestore, persistentLocalCache,
   persistentMultipleTabManager, collection, doc, getDoc, getDocs, addDoc, setDoc, updateDoc, query, where,
-  orderBy, limit, onSnapshot, serverTimestamp, Timestamp, runTransaction, deleteDoc, writeBatch, supabaseRuntimeConfigured, getSupabaseClient
-} from './supabase-compat.js?v=593';
+  orderBy, limit, onSnapshot, serverTimestamp, Timestamp, runTransaction, deleteDoc, writeBatch, supabaseRuntimeConfigured, getSupabaseClient,
+  testShadowModeEnabled, clearTestShadowData, testShadowStats
+} from './supabase-compat.js?v=5111s';
 
 const $app = document.querySelector('#app');
 const $toast = document.querySelector('#toast-root');
+const TEST_SAFE = Boolean(stagingConfig?.testMode && testShadowModeEnabled());
 
 // Indique à index.html que le module principal est bien chargé.
 window.__SENTINELLE_MODULE_LOADED__ = true;
@@ -309,6 +311,7 @@ function page(title, subtitle, body, options={}){
             <span class="pill blue" id="clock-pill">${nowText()}</span>
           </div>
         </div>
+        ${TEST_SAFE ? `<div class="test-safe-banner"><div><strong>MODE TEST SAFE</strong><span>Écritures locales uniquement · aucun push QG prod · aucun e-mail client</span></div><button class="btn small ghost" data-action="reset-test-safe" type="button">Réinitialiser les tests</button></div>` : ''}
         ${body}
       </main>
       ${portal === 'agent' ? sosButton() : ''}
@@ -464,6 +467,14 @@ function bindGlobalEvents(){
   document.querySelectorAll('[data-action="close-menu"]').forEach(btn => btn.addEventListener('click', closeMenu));
   document.querySelectorAll('[data-route]').forEach(btn => btn.addEventListener('click', () => { closeMenu(); navigate(btn.dataset.route); }));
   document.querySelectorAll('[data-action="diagnose-web-push"]').forEach(btn => btn.addEventListener('click', () => diagnosePushSetup(btn)));
+  document.querySelectorAll('[data-action="reset-test-safe"]').forEach(btn => btn.addEventListener('click', () => {
+    if(!TEST_SAFE) return;
+    const count=testShadowStats()?.rows||0;
+    if(!confirm(`Réinitialiser les données de test locales (${count} élément${count>1?'s':''}) ?`)) return;
+    clearTestShadowData();
+    toast('Données de test locales effacées.','success');
+    setTimeout(()=>location.reload(),350);
+  }));
   document.querySelectorAll('[data-action="logout"]').forEach(btn => btn.addEventListener('click', async () => {
     closeMenu();
     if (currentUser) await updateDoc(docRef('users', currentUser.uid), { isOnline:false, lastSeen: serverTimestamp() }).catch(()=>{});
@@ -478,11 +489,20 @@ function navigate(route){
   currentRoute = route;
   clearSubs();
   const portal = rolePortal(currentProfile.role);
+  if(TEST_SAFE && ['clients','billing','documents','agents','pushsetup'].includes(route)){
+    return renderTestSafeBlockedRoute(route);
+  }
   if (portal === 'agent') {
     ({ home:renderAgentHome, planning:renderAgentPlanning, badge:renderAgentBadge, mci:renderAgentMCI, round:renderAgentRound, docs:renderAgentDocs, flash:renderAgentFlash, pushsetup:renderPushSetup, intel:renderAgentIntel }[route] || renderAgentHome)();
   } else {
     ({ home:renderQGHome, missions:renderQGMissions, notifications:renderQGNotifications, reports:renderQGReports, documents:renderQGDocuments, clients:renderQGClients, billing:renderQGBilling, intel:renderQGIntel, device:renderQGDevice, sites:renderQGSites, agents:renderQGAgents, alerts:renderQGAlerts, flash:renderQGFlash, pushsetup:renderPushSetup, history:renderQGHistory }[route] || renderQGHome)();
   }
+}
+
+function renderTestSafeBlockedRoute(route){
+  const labels={clients:'Clients',billing:'Facturation',documents:'Documents production',agents:'Gestion des agents',pushsetup:'Web Push'};
+  const title=labels[route]||'Fonction production';
+  render(page(title,'Désactivé dans le repo test sécurisé',`<section class="card"><div class="card-title"><div><h2>Protection production active</h2><p>Cette rubrique réalise des écritures directes ou des envois externes hors de la couche de simulation.</p></div><span class="pill orange">TEST SAFE</span></div><div class="setup-box warning-copy">Pour éviter toute modification de la production, <strong>${safe(title)}</strong> est volontairement bloqué dans cette version test. Les écrans nécessaires à la V5.11 (Accueil agent, Missions, Sites, MCI, rondes visuelles, Aquila, Flash, SOS simulé) restent testables en shadow local.</div><button class="btn primary" data-route="home">Retour à l’accueil</button></section>`));
 }
 
 function renderSetupMissing(){
@@ -4870,6 +4890,7 @@ function downloadGeneratedDocument(d){
   downloadGeneratedPdf(d);
 }
 async function retryGeneratedDocumentEmail(d,button=null){
+  if(TEST_SAFE) return toast('Mode TEST SAFE : envoi e-mail client désactivé.','warning');
   if(!d||d.type!=='mission')return;
   const original=button?.textContent||'Relancer envoi';
   if(button){button.disabled=true;button.textContent='Relance…';}
@@ -5401,6 +5422,7 @@ function urlBase64ToUint8Array(value){
 }
 
 async function spNativePushRequest(body, options={}){
+  if (TEST_SAFE) return { ok:false, skipped:true, reason:'MODE TEST SAFE · push production désactivé' };
   if (!currentUser) return { ok:false, skipped:true, reason:'Utilisateur non connecté' };
   if (!webPushFunctionConfigured()) return { ok:false, skipped:true, reason:'Edge Function Web Push non configurée' };
   const timeoutMs = Math.max(3000, Number(options?.timeoutMs || 20000));
@@ -5475,6 +5497,7 @@ async function nativePushState(options={}){
 }
 
 async function persistNativePushSubscription(subscription){
+  if (TEST_SAFE) return null;
   if (!currentUser || !subscription) return null;
   const json = subscription.toJSON?.() || {};
   const endpoint = String(json.endpoint || subscription.endpoint || '').trim();
@@ -5496,6 +5519,7 @@ async function persistNativePushSubscription(subscription){
 }
 
 async function syncNativePushIdentity(){
+  if (TEST_SAFE) return null;
   if (!currentUser || !nativeWebPushSupported() || Notification.permission !== 'granted') return null;
   try {
     const registration = await navigator.serviceWorker.ready;
@@ -5509,6 +5533,7 @@ async function syncNativePushIdentity(){
 }
 
 async function disableNativePushForCurrentDevice(){
+  if (TEST_SAFE) return;
   if (!currentUser || !('serviceWorker' in navigator)) return;
   try {
     const registration = await navigator.serviceWorker.ready.catch(()=>null);
@@ -5524,6 +5549,7 @@ async function disableNativePushForCurrentDevice(){
 }
 
 async function registerPushNotifications(){
+  if(TEST_SAFE) return toast('Mode TEST SAFE : aucun abonnement Push production n’est créé.','warning');
   const button = document.querySelector('#push-activate-main');
   const originalLabel = 'Activer les notifications sur cet appareil';
   try {
@@ -5804,10 +5830,12 @@ function qgPhoneButton(){
   return `<a class="btn warning full" href="tel:${safe(tel)}">Appeler le QG</a>`;
 }
 function showSOSSent(alertId,{queuedOffline=false}={}){
-  const title = queuedOffline ? 'Alerte enregistrée hors ligne' : 'Alerte envoyée au QG';
-  const message = queuedOffline
-    ? 'L’alerte est conservée sur cet appareil et sera synchronisée au retour du réseau. Le QG n’est pas prévenu en temps réel : appelle-le immédiatement ou compose le 112.'
-    : 'QG notifié. Restez en sécurité.';
+  const title = TEST_SAFE ? 'SOS simulé · TEST SAFE' : (queuedOffline ? 'Alerte enregistrée hors ligne' : 'Alerte envoyée au QG');
+  const message = TEST_SAFE
+    ? 'Simulation enregistrée uniquement sur cet appareil. Aucun push, aucune alerte et aucune donnée SOS ne sont envoyés au QG de production.'
+    : (queuedOffline
+      ? 'L’alerte est conservée sur cet appareil et sera synchronisée au retour du réseau. Le QG n’est pas prévenu en temps réel : appelle-le immédiatement ou compose le 112.'
+      : 'QG notifié. Restez en sécurité.');
   showModal(title, `<div class="setup-box danger-copy">${safe(message)}</div><div class="grid cols-2">${qgPhoneButton()}<a class="btn danger full" href="tel:112">Appeler secours 112</a><button class="btn full" id="false-alert">Fausse alerte</button></div><p class="muted" style="font-size:12px;margin-top:14px">La fausse alerte est tracée et ne supprime pas silencieusement l’historique.</p>`);
   document.querySelector('#false-alert')?.addEventListener('click', async () => {
     const reason = prompt('Confirme la fausse alerte avec une justification :');

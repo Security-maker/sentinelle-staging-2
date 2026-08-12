@@ -1,8 +1,10 @@
 // Sentinelle Pro V5.9.3 — PRODUCTION Supabase Auth + Core + Storage + Web Push natif
 // Aucun SDK Firebase, OneSignal ou Worker Cloudflare n'est nécessaire pour le push.
 export const stagingConfig = Object.freeze({
-  version: '5.9.3',
-  environment: 'production',
+  version: '5.11.1-test-safe',
+  environment: 'test-safe',
+  testMode: true,
+  shadowWrites: true,
   supabaseUrl: 'https://ksoyqtsrhtsfbwmxipqz.supabase.co',
   supabasePublishableKey: 'sb_publishable_TaSZX6F0nsEecsHPxjZ8hg_c1cZtQuN',
   organizationId: '43b09366-de36-5b44-97cc-d549eb0d4e53',

@@ -1,5 +1,5 @@
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
-import { stagingConfig } from './sentinelle-config.js';
+import { stagingConfig } from './sentinelle-config.js?v=5111s';
 
 const CORE = Object.freeze({
   users: { table:'profiles', id:'external_uid' },
@@ -22,6 +22,52 @@ const supabase = createClient(stagingConfig.supabaseUrl, stagingConfig.supabaseP
 
 let compatUserCache = null;
 let profileCache = null;
+
+// V5.11.1 TEST SAFE — toutes les écritures métier de la couche compat sont
+// redirigées vers un overlay local au navigateur. La production reste en lecture seule.
+const TEST_MODE = Boolean(stagingConfig?.testMode && stagingConfig?.shadowWrites);
+const TEST_SHADOW_KEY = 'sentinelle_v5111_test_safe_shadow';
+function loadTestShadow(){
+  if(!TEST_MODE) return {};
+  try { return JSON.parse(localStorage.getItem(TEST_SHADOW_KEY) || '{}') || {}; }
+  catch(_){ return {}; }
+}
+function saveTestShadow(shadow){
+  if(!TEST_MODE) return;
+  try { localStorage.setItem(TEST_SHADOW_KEY, JSON.stringify(shadow || {})); }
+  catch(error){ console.warn('Shadow TEST SAFE saturé', error); }
+}
+function shadowEntry(path,id){
+  const db=loadTestShadow();
+  return db?.[String(path)]?.[String(id)] ?? null;
+}
+function shadowRows(path){
+  const db=loadTestShadow();
+  return Object.entries(db?.[String(path)] || {}).map(([id,entry])=>({id,entry}));
+}
+async function shadowWrite(path,id,data,{merge=false}={}){
+  const key=String(path), docId=String(id);
+  const db=loadTestShadow();
+  db[key]=db[key]||{};
+  const previous=merge ? (await readOne(key,docId).catch(()=>null)) : null;
+  const combined=merge ? deepMerge(previous||{},normalizeDataObject(data)) : normalizeDataObject(data);
+  db[key][docId]={deleted:false,data:plain(combined),updatedAt:new Date().toISOString()};
+  saveTestShadow(db);
+  return makeDoc(key,docId);
+}
+function shadowDelete(path,id){
+  const key=String(path), docId=String(id);
+  const db=loadTestShadow(); db[key]=db[key]||{};
+  db[key][docId]={deleted:true,data:null,updatedAt:new Date().toISOString()};
+  saveTestShadow(db);
+}
+export function testShadowModeEnabled(){ return TEST_MODE; }
+export function clearTestShadowData(){ if(TEST_MODE) localStorage.removeItem(TEST_SHADOW_KEY); }
+export function testShadowStats(){
+  const db=loadTestShadow(); let rows=0;
+  for(const entries of Object.values(db)) rows += Object.keys(entries||{}).length;
+  return {enabled:TEST_MODE,rows};
+}
 
 class CompatTimestamp {
   constructor(value){
@@ -365,16 +411,32 @@ function idForCore(path,row){
 
 async function readRows(path){
   const cfg=coreFor(path);
+  let rows=[];
   if(cfg){
     const {data,error}=await supabase.from(cfg.table).select('*');
     if(error) throw error;
-    return Promise.all((data||[]).map(async row=>({id:idForCore(path,row),data:await hydrateDecodedMedia(path,row,decodeCore(path,row))})));
+    rows=await Promise.all((data||[]).map(async row=>({id:idForCore(path,row),data:await hydrateDecodedMedia(path,row,decodeCore(path,row))})));
+  } else {
+    const {data,error}=await supabase.from('compat_records').select('external_id,payload').eq('collection_name',path);
+    if(error) throw error;
+    rows=await Promise.all((data||[]).map(async row=>({id:String(row.external_id),data:await hydrateGenericMedia(path,revive(row.payload||{}))})));
   }
-  const {data,error}=await supabase.from('compat_records').select('external_id,payload').eq('collection_name',path);
-  if(error) throw error;
-  return Promise.all((data||[]).map(async row=>({id:String(row.external_id),data:await hydrateGenericMedia(path,revive(row.payload||{}))})));
+  if(!TEST_MODE) return rows;
+  const byId=new Map(rows.map(row=>[String(row.id),row]));
+  for(const {id,entry} of shadowRows(path)){
+    if(entry?.deleted){ byId.delete(String(id)); continue; }
+    byId.set(String(id),{id:String(id),data:revive(entry?.data||{})});
+  }
+  return [...byId.values()];
 }
 async function readOne(path,id){
+  if(TEST_MODE){
+    const local=shadowEntry(path,id);
+    if(local){
+      if(local.deleted) return null;
+      return revive(local.data||{});
+    }
+  }
   const cfg=coreFor(path);
   if(cfg){
     const {data,error}=await supabase.from(cfg.table).select('*').eq(cfg.id,id).maybeSingle();
@@ -511,12 +573,19 @@ async function writeGeneric(path,id,data,{merge=false}={}){
 }
 export async function addDoc(ref,data){
   const id=randomId(), path=ref.path;
+  if(TEST_MODE) return shadowWrite(path,id,data,{merge:false});
   return coreFor(path)?writeCore(path,id,data,{insertOnly:true}):writeGeneric(path,id,data,{merge:false});
 }
 export async function setDoc(ref,data,options={}){
+  if(TEST_MODE) return shadowWrite(ref.path,ref.id,data,{merge:Boolean(options.merge)});
   return coreFor(ref.path)?writeCore(ref.path,ref.id,data,{merge:Boolean(options.merge)}):writeGeneric(ref.path,ref.id,data,{merge:Boolean(options.merge)});
 }
 export async function updateDoc(ref,data){
+  if(TEST_MODE){
+    const existing=await readOne(ref.path,ref.id);
+    if(!existing && ref.path!=='auditLogs') throw new Error(`Document introuvable : ${ref.path}/${ref.id}`);
+    return shadowWrite(ref.path,ref.id,data,{merge:true});
+  }
   if(coreFor(ref.path)){
     const existing=await existingCoreRow(ref.path,ref.id);
     if(!existing && ref.path!=='auditLogs') throw new Error(`Document introuvable : ${ref.path}/${ref.id}`);
@@ -527,6 +596,7 @@ export async function updateDoc(ref,data){
   return writeGeneric(ref.path,ref.id,data,{merge:true});
 }
 export async function deleteDoc(ref){
+  if(TEST_MODE){ shadowDelete(ref.path,ref.id); return; }
   const cfg=coreFor(ref.path);
   if(cfg){
     if(ref.path==='reports'){

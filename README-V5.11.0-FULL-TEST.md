@@ -1,3 +1,5 @@
+# ATTENTION : version remplacée par V5.11.1 TEST SAFE dans ce dossier
+
 # Sentinelle Pro — V5.11.0 FULL TEST REPO
 
 Version complète destinée au **repo TEST** pour valider l'expérience agent avant bascule en production.
