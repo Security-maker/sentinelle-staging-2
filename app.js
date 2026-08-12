@@ -1,12 +1,12 @@
-import { stagingConfig, DEFAULT_QG_WHATSAPP, pushConfig } from './sentinelle-config.js?v=5112s';
-import { supabaseBridgeEnabled, mirrorGeneratedDocument } from './supabase-bridge.js?v=5112s';
+import { stagingConfig, DEFAULT_QG_WHATSAPP, pushConfig } from './sentinelle-config.js?v=5113s';
+import { supabaseBridgeEnabled, mirrorGeneratedDocument } from './supabase-bridge.js?v=5113s';
 import {
   initializeApp, deleteApp, getAuth, setPersistence, browserLocalPersistence, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, onAuthStateChanged, initializeFirestore, persistentLocalCache,
   persistentMultipleTabManager, collection, doc, getDoc, getDocs, addDoc, setDoc, updateDoc, query, where,
   orderBy, limit, onSnapshot, serverTimestamp, Timestamp, runTransaction, deleteDoc, writeBatch, supabaseRuntimeConfigured, getSupabaseClient,
   testShadowModeEnabled, clearTestShadowData, testShadowStats
-} from './supabase-compat.js?v=5112s';
+} from './supabase-compat.js?v=5113s';
 
 const $app = document.querySelector('#app');
 const $toast = document.querySelector('#toast-root');
@@ -1040,34 +1040,26 @@ async function renderAgentHome(){
   activeShiftCache = shift;
   const isWorking = !!shift;
   const body = isWorking ? `
-    <section class="agent-cockpit" id="agent-xp-shell">
-      <div id="agent-xp-hero" class="agent-xp-hero"><div class="agent-xp-loading"><span></span><strong>Préparation du cockpit mission…</strong></div></div>
-      <div id="agent-command-dock" class="agent-command-dock"><div class="agent-command-loading">Préparation des commandes terrain…</div></div>
-      <div id="agent-context-card" class="agent-context-card"><div class="empty">Calcul de la prochaine action…</div></div>
+    <section class="agent-cockpit simple-flow" id="agent-xp-shell">
+      <div id="agent-xp-hero" class="agent-xp-hero"><div class="agent-xp-loading"><span></span><strong>Préparation de ta mission…</strong></div></div>
+      <div id="agent-command-dock" class="agent-command-dock simple"><div class="agent-command-loading">Préparation de l’action principale…</div></div>
     </section>
-    <section class="agent-xp-grid ultra" style="margin-top:16px">
-      <div class="card agent-smart-actions-card ultra-card">
-        <div class="card-title"><div><h2>Raccourcis métier</h2><p id="agent-mode-label">Les situations les plus utiles pour ce poste</p></div><button class="btn small ghost" id="agent-open-all-actions">Tout afficher</button></div>
-        <div id="agent-smart-actions" class="agent-smart-actions ultra"><div class="empty">Chargement…</div></div>
-      </div>
-      <div class="card agent-timeline-card ultra-card">
-        <div class="card-title"><div><h2>Fil de mission</h2><p>Tout ce qui sera repris dans la main courante</p></div><span class="pill blue" id="agent-live-count">0 événement</span></div>
-        <div id="agent-live-timeline" class="agent-live-timeline"><div class="empty">Chargement de la timeline…</div></div>
-      </div>
+    <section class="card agent-timeline-card ultra-card simple-flow-card" style="margin-top:16px">
+      <div class="card-title"><div><h2>Derniers événements</h2><p>Les dernières lignes qui alimentent la main courante</p></div><span class="pill blue" id="agent-live-count">0 événement</span></div>
+      <div id="agent-live-timeline" class="agent-live-timeline simple"><div class="empty">Chargement…</div></div>
+      <button class="btn ghost full" id="agent-open-mci-page" type="button">Voir toute la main courante</button>
     </section>
-    <section class="card agent-handover-live ultra-card" style="margin-top:16px">
-      <div class="card-title"><div><h2>Relève & transmission</h2><p>Les informations utiles de la vacation précédente restent visibles pendant ton poste</p></div></div>
-      <div id="agent-handover-card" class="handover-box"><div class="empty">Chargement de la relève…</div></div>
+    <section class="card agent-handover-live ultra-card simple-flow-card" style="margin-top:16px">
+      <div class="card-title"><div><h2>Relève</h2><p>Transmission de la vacation précédente</p></div></div>
+      <div id="agent-handover-card" class="handover-box"><div class="empty">Chargement…</div></div>
     </section>
-    <section class="card offline-ready-card ${navigator.onLine?'':'offline-active'} ultra-card" style="margin-top:16px">
-      <div class="card-title"><div><h2>État de l’application</h2><p id="offline-ready-status">${safe(offlineReadyText())}</p></div>${navigator.onLine?'<button class="btn small" id="offline-sync-now">Synchroniser</button>':'<span class="pill orange">Hors ligne</span>'}</div>
-      <div class="setup-box ${navigator.onLine?'':'warning-copy'}">${navigator.onLine?'Sentinelle synchronise les événements de la mission en temps réel.':'Mode hors ligne : les écritures Supabase ne sont pas garanties sans réseau. Une alerte PTI hors ligne ne peut pas prévenir le QG immédiatement : appelle le QG ou le 112.'}</div>
+    <section class="agent-simple-footer-state ${navigator.onLine?'online':'offline'}" style="margin-top:12px">
+      <span></span><strong>${navigator.onLine?'Connecté':'Hors ligne'}</strong><small>${navigator.onLine?'Synchronisation disponible':'Certaines fonctions réseau sont indisponibles'}</small>
     </section>
-    <section class="card agent-end-zone ultra-card" style="margin-top:16px">
-      <button class="btn danger full end-shift-main-btn" id="end-shift-btn">Terminer ma mission</button>
-      <p class="muted">Un résumé complet et la transmission pour l’agent suivant seront proposés avant la clôture.</p>
+    <section class="agent-end-zone simple-end-zone" style="margin-top:12px">
+      <button class="btn ghost full" id="end-shift-btn">Terminer ma mission</button>
     </section>` : `
-    <section class="agent-offshift-hero ultra-offshift">
+    <section class="agent-offshift-hero ultra-offshift simple-offshift">
       <div><span class="agent-xp-eyebrow">SENTINELLE PRO · TERRAIN</span><h1>Prêt pour ta prochaine mission</h1><p>${safe(currentProfile.prenom || '')} ${safe(currentProfile.nom || '')} · sélectionne la vacation prévue puis réalise ta prise de poste.</p></div>
       <span class="pill orange">Hors poste</span>
     </section>
@@ -1075,42 +1067,29 @@ async function renderAgentHome(){
       <div class="card-title"><div><h2>Prise de poste</h2><p>Mission planifiée ou prise de poste libre</p></div></div>
       ${takeShiftForm()}
     </section>
-    <section class="card quick-actions-card ultra-card" style="margin-top:16px">
-      <div class="card-title"><div><h2>Avant la mission</h2><p>Planning, consignes et messages QG</p></div></div>
-      <div class="quick-action-bubbles">
-        <button class="quick-action-bubble primary" data-route="planning"><span class="quick-action-icon">◷</span><strong>Planning</strong><small>Mes missions</small></button>
-        <button class="quick-action-bubble" data-route="docs"><span class="quick-action-icon">▣</span><strong>Consignes</strong><small>Documents terrain</small></button>
-        <button class="quick-action-bubble warning" data-route="flash"><span class="quick-action-icon">⚡</span><strong>Flash QG</strong><small>Messages prioritaires</small></button>
-        <button class="quick-action-bubble" id="whatsapp-qg"><span class="quick-action-icon">◉</span><strong>WhatsApp QG</strong><small>Canal non critique</small></button>
-      </div>
-    </section>
-    <section class="card offline-ready-card ${navigator.onLine?'':'offline-active'} ultra-card" style="margin-top:16px">
-      <div class="card-title"><div><h2>Mode hors ligne</h2><p id="offline-ready-status">${safe(offlineReadyText())}</p></div>${navigator.onLine?'<button class="btn small" id="offline-sync-now">Synchroniser maintenant</button>':'<span class="pill orange">Hors ligne</span>'}</div>
-      <div class="setup-box ${navigator.onLine?'':'warning-copy'}">${navigator.onLine?'Cache local de confort préparé.':'Mode hors ligne : une première connexion avec réseau reste recommandée avant la mission.'}</div>
+    <section class="agent-simple-preflight" style="margin-top:14px">
+      <button class="agent-simple-preflight-btn" data-route="planning"><span>◷</span><strong>Planning</strong></button>
+      <button class="agent-simple-preflight-btn" data-route="docs"><span>▣</span><strong>Consignes</strong></button>
+      <button class="agent-simple-preflight-btn" data-route="flash"><span>⚡</span><strong>Flash QG</strong></button>
     </section>
     <section class="card ultra-card" style="margin-top:16px">
-      <div class="card-title"><div><h2>Derniers rapports envoyés</h2><p>Flux personnel</p></div></div>
+      <div class="card-title"><div><h2>Derniers rapports</h2><p>Ton activité récente</p></div></div>
       <div id="agent-recent-reports" class="timeline"><div class="empty">Chargement…</div></div>
     </section>`;
-  render(page('Accueil Agent', isWorking ? 'Cockpit mission · actions terrain en accès immédiat' : 'Préparation de la prochaine vacation', body));
+  render(page('Accueil Agent', isWorking ? 'Mission en cours' : 'Préparation de la prochaine vacation', body));
   await bindAgentHome(shift);
-  document.querySelector('#offline-sync-now')?.addEventListener('click', async event => {
-    const button = event.currentTarget; button.disabled = true; button.textContent = 'Synchronisation…';
-    await primeAgentOfflineData().catch(() => {});
-    button.textContent = 'Synchronisé'; setTimeout(() => { if (button.isConnected) { button.disabled=false; button.textContent='Synchroniser'; } }, 1200);
-  });
+  document.querySelector('#agent-open-mci-page')?.addEventListener('click',()=>navigate('mci'));
   if (shift) {
     loadAgentHandoverCard(shift);
     initAgentExperience(shift).catch(error => {
       console.error('Mode mission indisponible', error);
       const hero=document.querySelector('#agent-xp-hero');
       if(hero) hero.innerHTML=shiftSummary(shift);
-      const ctx=document.querySelector('#agent-context-card');
-      if(ctx) ctx.innerHTML='<div class="setup-box warning-copy">Le cockpit mission n’a pas pu charger toutes les données. Les fonctions terrain classiques restent disponibles.</div>';
+      const dock=document.querySelector('#agent-command-dock');
+      if(dock) dock.innerHTML='<div class="setup-box warning-copy">Le mode mission n’a pas pu charger toutes les données. La main courante classique reste disponible.</div>';
     });
   } else listenAgentRecentReports();
 }
-
 function shiftSummary(shift){
   const score = typeof shift.conformityScore === 'number' ? `<span class="pill ${shift.conformityScore < 70 ? 'red' : shift.conformityScore < 90 ? 'orange' : 'green'}">Conformité ${shift.conformityScore}%</span>` : '';
   const planned = shift.scheduledStart ? `<div><span>Mission prévue</span><strong>${dateText(shift.scheduledStart)} → ${dateText(shift.scheduledEnd)}</strong></div>` : '';
@@ -1146,49 +1125,75 @@ function agentModeLabel(mode){
 }
 function agentActionLibrary(){
   return [
-    {id:'situation_normale',icon:'✓',label:'Situation normale',category:'Surveillance',severity:'Normal',modes:['surveillance','surveillance_rounds','mixte'],message:'Surveillance générale effectuée sur le poste et ses abords immédiats. Aucun événement particulier, anomalie ou comportement suspect n’a été constaté au moment du contrôle.'},
-    {id:'passage_vehicule',icon:'◈',label:'Passage véhicule',category:'Surveillance',severity:'Normal',modes:['surveillance','surveillance_rounds','mixte'],message:'Passage d’un véhicule constaté à proximité du site. Aucun comportement inhabituel ni incident particulier n’a été relevé lors de son passage.'},
-    {id:'passage_pieton',icon:'•',label:'Passage piéton',category:'Surveillance',severity:'Normal',modes:['surveillance','surveillance_rounds','mixte'],message:'Passage d’une personne constaté à proximité du site. Aucun comportement inhabituel ni élément nécessitant une intervention n’a été relevé.'},
-    {id:'controle_acces',icon:'⌁',label:'Contrôle accès',category:'Accès',severity:'Normal',modes:['surveillance','surveillance_rounds','accueil','mixte'],message:'Contrôle des accès principaux effectué conformément aux consignes du site. Les accès contrôlés sont conformes et aucune anomalie particulière n’a été constatée.'},
-    {id:'personne_signalee',icon:'!',label:'Personne signalée',category:'Surveillance',severity:'À surveiller',modes:['surveillance','surveillance_rounds','accueil','mixte'],message:'Présence d’une personne nécessitant une vigilance particulière constatée à proximité du site. La situation a été surveillée et consignée dans la présente main courante.'},
-    {id:'porte_ouverte',icon:'↗',label:'Porte ouverte',category:'Accès',severity:'À surveiller',modes:['surveillance','surveillance_rounds','mixte'],message:'Une porte a été constatée ouverte lors du contrôle. La situation a été vérifiée et consignée dans la présente main courante afin d’assurer le suivi du site.'},
-    {id:'portail_ouvert',icon:'↔',label:'Portail ouvert',category:'Accès',severity:'À surveiller',modes:['surveillance','surveillance_rounds','mixte'],message:'Un portail a été constaté ouvert lors du contrôle. La situation a été vérifiée et consignée dans la présente main courante afin d’assurer le suivi du site.'},
-    {id:'eclairage_defectueux',icon:'☼',label:'Éclairage défectueux',category:'Technique',severity:'À surveiller',modes:['surveillance','surveillance_rounds','mixte'],message:'Un défaut d’éclairage a été constaté sur le site. L’anomalie a été localisée et consignée afin de permettre son suivi.'},
-    {id:'bruit_constate',icon:'≈',label:'Bruit constaté',category:'Surveillance',severity:'À surveiller',modes:['surveillance','surveillance_rounds','mixte'],message:'Des nuisances sonores ont été constatées à proximité du site. Une surveillance de la zone a été maintenue et la situation a été consignée.'},
-    {id:'arrivee_employe',icon:'↓',label:'Arrivée employé',category:'Personnel',severity:'Normal',modes:['accueil','mixte'],message:'Arrivée d’un membre du personnel sur le site. L’accès s’est effectué dans des conditions normales après contrôle, sans incident particulier.'},
-    {id:'depart_employe',icon:'↑',label:'Départ employé',category:'Personnel',severity:'Normal',modes:['accueil','mixte'],message:'Départ d’un membre du personnel constaté. La sortie s’est déroulée normalement et aucun événement particulier n’a été relevé.'},
-    {id:'arrivee_prestataire',icon:'◇',label:'Arrivée prestataire',category:'Personnel',severity:'Normal',modes:['accueil','mixte'],message:'Arrivée d’un prestataire sur le site. Son accès a été pris en compte conformément aux consignes en vigueur et sa présence a été consignée.'},
-    {id:'depart_prestataire',icon:'◇',label:'Départ prestataire',category:'Personnel',severity:'Normal',modes:['accueil','mixte'],message:'Départ d’un prestataire constaté sur le site. La fin de son intervention a été prise en compte et consignée conformément aux consignes.'},
-    {id:'visiteur_accueilli',icon:'◎',label:'Visiteur accueilli',category:'Visiteur',severity:'Normal',modes:['accueil','mixte'],message:'Arrivée d’un visiteur sur le site. Celui-ci a été accueilli et orienté conformément aux consignes d’accès en vigueur, sans incident particulier.'},
-    {id:'acces_refuse',icon:'×',label:'Accès refusé',category:'Accès',severity:'À surveiller',modes:['accueil','mixte'],message:'Une demande d’accès a été refusée conformément aux consignes du site. La personne concernée a été informée et aucun incident complémentaire n’a été constaté.'},
-    {id:'livraison_recue',icon:'□',label:'Livraison reçue',category:'Livraison',severity:'Normal',modes:['accueil','mixte'],message:'Réception d’une livraison sur le site. La prise en charge s’est déroulée conformément aux consignes et sans incident particulier.'},
-    {id:'livraison_refusee',icon:'□',label:'Livraison refusée',category:'Livraison',severity:'À surveiller',modes:['accueil','mixte'],message:'Une livraison n’a pas été acceptée conformément aux consignes du site. Le transporteur a été informé de la procédure à suivre et la situation a été consignée.'},
-    {id:'objet_trouve',icon:'◆',label:'Objet trouvé',category:'Objet / matériel',severity:'Normal',modes:['surveillance','surveillance_rounds','accueil','mixte'],message:'Découverte d’un objet sur le site. Celui-ci a été mis en sécurité dans l’attente de son identification ou de sa restitution à son propriétaire.'},
-    {id:'objet_remis',icon:'◆',label:'Objet remis',category:'Objet / matériel',severity:'Normal',modes:['surveillance','surveillance_rounds','accueil','mixte'],message:'Un objet précédemment mis en sécurité a été remis après vérification de la situation. La remise a été consignée dans la présente main courante afin d’assurer la traçabilité.'},
-    {id:'cles_transmises',icon:'⌘',label:'Clés transmises',category:'Objet / matériel',severity:'Normal',modes:['surveillance','surveillance_rounds','accueil','mixte'],message:'Remise d’un jeu de clés effectuée conformément aux consignes du site. La transmission a été consignée afin d’assurer la traçabilité.'},
-    {id:'materiel_endommage',icon:'△',label:'Matériel endommagé',category:'Technique',severity:'Important',modes:['surveillance','surveillance_rounds','accueil','mixte'],message:'Une dégradation ou un dysfonctionnement matériel a été constaté sur le site. L’élément concerné a été identifié et la situation a été consignée pour suivi.'},
-    {id:'alarme',icon:'!',label:'Alarme déclenchée',category:'Incident',severity:'Important',modes:['surveillance','surveillance_rounds','accueil','mixte'],message:'Déclenchement d’une alarme constaté sur le site. Une levée de doute a été engagée conformément aux consignes en vigueur et la situation est consignée dans la présente main courante.'},
-    {id:'intervention_technique',icon:'⌁',label:'Intervention technique',category:'Intervention',severity:'Normal',modes:['surveillance','surveillance_rounds','accueil','mixte'],message:'Intervention d’un technicien ou prestataire technique sur le site. L’accès et la présence de l’intervenant ont été pris en compte conformément aux consignes en vigueur.'},
-    {id:'services_secours',icon:'✦',label:'Police / secours',category:'Intervention',severity:'Important',modes:['surveillance','surveillance_rounds','accueil','mixte'],message:'Présence des forces de l’ordre ou des services de secours constatée sur le site. Leur intervention a été prise en compte et les éléments utiles sont consignés dans la présente main courante.'}
+    {id:'arrivee_employe',icon:'↓',label:'Arrivée employé',category:'Personnel',hint:'Entrée d’un salarié',severity:'Normal',message:'Arrivée d’un membre du personnel sur le site. Son accès a été pris en compte conformément aux consignes en vigueur et s’est déroulé sans incident particulier.'},
+    {id:'depart_employe',icon:'↑',label:'Départ employé',category:'Personnel',hint:'Sortie d’un salarié',severity:'Normal',message:'Départ d’un membre du personnel constaté sur le site. La sortie s’est déroulée normalement et aucun événement particulier n’a été relevé au moment de son départ.'},
+    {id:'arrivee_prestataire',icon:'◇',label:'Arrivée prestataire',category:'Personnel',hint:'Intervenant extérieur',severity:'Normal',message:'Arrivée d’un prestataire sur le site. Son accès et sa présence ont été pris en compte conformément aux consignes en vigueur, sans incident particulier.'},
+    {id:'depart_prestataire',icon:'◇',label:'Départ prestataire',category:'Personnel',hint:'Fin d’intervention',severity:'Normal',message:'Départ d’un prestataire constaté sur le site. La fin de son intervention a été prise en compte et consignée conformément aux consignes en vigueur.'},
+
+    {id:'visiteur_accueilli',icon:'◎',label:'Visiteur accueilli',category:'Accès / Visiteurs',hint:'Accueil et orientation',severity:'Normal',message:'Arrivée d’un visiteur sur le site. Celui-ci a été accueilli et orienté conformément aux consignes d’accès en vigueur, sans incident particulier.'},
+    {id:'controle_acces',icon:'⌁',label:'Contrôle d’accès',category:'Accès / Visiteurs',hint:'Vérification des accès',severity:'Normal',message:'Contrôle des accès effectué conformément aux consignes du site. Les accès vérifiés sont conformes et aucune anomalie particulière n’a été constatée au moment du contrôle.'},
+    {id:'acces_autorise',icon:'✓',label:'Accès autorisé',category:'Accès / Visiteurs',hint:'Entrée après contrôle',severity:'Normal',message:'Accès autorisé après vérification conformément aux consignes du site. L’entrée s’est déroulée normalement et aucun incident particulier n’a été constaté.'},
+    {id:'acces_refuse',icon:'×',label:'Accès refusé',category:'Accès / Visiteurs',hint:'Refus conforme aux consignes',severity:'À surveiller',message:'Une demande d’accès a été refusée conformément aux consignes du site. La personne concernée a été informée de la procédure et aucun incident complémentaire n’a été constaté.'},
+    {id:'porte_ouverte',icon:'↗',label:'Porte ouverte',category:'Accès / Visiteurs',hint:'Accès constaté ouvert',severity:'À surveiller',message:'Une porte a été constatée ouverte lors du contrôle du site. La situation a été vérifiée et consignée dans la présente main courante afin d’en assurer le suivi.'},
+    {id:'portail_ouvert',icon:'↔',label:'Portail ouvert',category:'Accès / Visiteurs',hint:'Portail constaté ouvert',severity:'À surveiller',message:'Un portail a été constaté ouvert lors du contrôle du site. La situation a été vérifiée et consignée dans la présente main courante afin d’en assurer le suivi.'},
+
+    {id:'situation_normale',icon:'✓',label:'Situation RAS',category:'Ronde / Surveillance',hint:'Aucun fait particulier',severity:'Normal',message:'Surveillance générale effectuée sur le poste et ses abords immédiats. Aucun événement particulier, anomalie ou comportement suspect n’a été constaté au moment du contrôle.'},
+    {id:'passage_vehicule',icon:'◈',label:'Passage véhicule',category:'Ronde / Surveillance',hint:'Véhicule observé',severity:'Normal',message:'Passage d’un véhicule constaté à proximité du site. Aucun comportement inhabituel ni incident particulier n’a été relevé lors de son passage.'},
+    {id:'passage_pieton',icon:'•',label:'Passage piéton',category:'Ronde / Surveillance',hint:'Personne observée',severity:'Normal',message:'Passage d’une personne constaté à proximité du site. Aucun comportement inhabituel ni élément nécessitant une intervention n’a été relevé.'},
+    {id:'presence_inhabituelle',icon:'!',label:'Présence inhabituelle',category:'Ronde / Surveillance',hint:'Vigilance renforcée',severity:'À surveiller',message:'Une présence inhabituelle a été constatée à proximité du site. Une vigilance particulière a été maintenue sur la zone et la situation a été consignée dans la présente main courante.'},
+    {id:'bruit_constate',icon:'≈',label:'Bruit inhabituel',category:'Ronde / Surveillance',hint:'Nuisance ou bruit constaté',severity:'À surveiller',message:'Un bruit inhabituel ou des nuisances sonores ont été constatés à proximité du site. Une surveillance de la zone a été maintenue et la situation a été consignée.'},
+    {id:'eclairage_defectueux',icon:'☼',label:'Éclairage défectueux',category:'Ronde / Surveillance',hint:'Zone mal éclairée',severity:'À surveiller',message:'Un défaut d’éclairage a été constaté sur le site. L’anomalie a été localisée et consignée dans la présente main courante afin de permettre son suivi.'},
+
+    {id:'livraison_recue',icon:'□',label:'Livraison reçue',category:'Livraisons / Objets',hint:'Réception d’une livraison',severity:'Normal',message:'Réception d’une livraison sur le site. La prise en charge s’est déroulée conformément aux consignes en vigueur et sans incident particulier.'},
+    {id:'livraison_refusee',icon:'□',label:'Livraison refusée',category:'Livraisons / Objets',hint:'Livraison non acceptée',severity:'À surveiller',message:'Une livraison n’a pas été acceptée conformément aux consignes du site. Le transporteur a été informé de la procédure à suivre et la situation a été consignée.'},
+    {id:'objet_trouve',icon:'◆',label:'Objet trouvé',category:'Livraisons / Objets',hint:'Objet mis en sécurité',severity:'Normal',message:'Découverte d’un objet sur le site. Celui-ci a été mis en sécurité dans l’attente de son identification ou de sa restitution à son propriétaire.'},
+    {id:'objet_remis',icon:'◆',label:'Objet remis',category:'Livraisons / Objets',hint:'Restitution tracée',severity:'Normal',message:'Un objet précédemment mis en sécurité a été remis après vérification de la situation. La remise a été consignée dans la présente main courante afin d’en assurer la traçabilité.'},
+    {id:'cles_recuperees',icon:'⌘',label:'Clés récupérées',category:'Livraisons / Objets',hint:'Prise en charge de clés',severity:'Normal',message:'Un jeu de clés a été récupéré conformément aux consignes du site. La prise en charge a été consignée afin d’en assurer la traçabilité.'},
+    {id:'cles_transmises',icon:'⌘',label:'Clés transmises',category:'Livraisons / Objets',hint:'Remise de clés',severity:'Normal',message:'Remise d’un jeu de clés effectuée conformément aux consignes du site. La transmission a été consignée afin d’en assurer la traçabilité.'},
+    {id:'colis_recu',icon:'▣',label:'Colis reçu',category:'Livraisons / Objets',hint:'Colis pris en charge',severity:'Normal',message:'Réception d’un colis sur le site. Celui-ci a été pris en charge conformément aux consignes en vigueur et la réception a été consignée.'},
+    {id:'colis_remis',icon:'▣',label:'Colis remis',category:'Livraisons / Objets',hint:'Colis remis au destinataire',severity:'Normal',message:'Remise d’un colis effectuée au destinataire ou à la personne habilitée. La remise a été consignée afin d’en assurer la traçabilité.'},
+
+    {id:'alarme',icon:'!',label:'Alarme déclenchée',category:'Incident / Autre',hint:'Levée de doute',severity:'Important',message:'Déclenchement d’une alarme constaté sur le site. Une levée de doute a été engagée conformément aux consignes en vigueur et la situation est consignée dans la présente main courante.'},
+    {id:'anomalie_technique',icon:'△',label:'Anomalie technique',category:'Incident / Autre',hint:'Dysfonctionnement constaté',severity:'À surveiller',message:'Une anomalie technique a été constatée sur le site. L’élément concerné a été identifié et la situation a été consignée afin de permettre son suivi.'},
+    {id:'materiel_endommage',icon:'△',label:'Matériel endommagé',category:'Incident / Autre',hint:'Dégradation matérielle',severity:'Important',message:'Une dégradation ou un dommage matériel a été constaté sur le site. L’élément concerné a été identifié et la situation a été consignée pour suivi.'},
+    {id:'degradation_constatee',icon:'!',label:'Dégradation constatée',category:'Incident / Autre',hint:'Dommage sur le site',severity:'Important',message:'Une dégradation a été constatée sur le site. Les éléments visibles ont été vérifiés et la situation a été consignée dans la présente main courante afin d’en assurer le suivi.'},
+    {id:'tentative_acces',icon:'!',label:'Tentative d’accès',category:'Incident / Autre',hint:'Accès non autorisé',severity:'Important',message:'Une tentative d’accès non autorisé a été constatée sur le site. La situation a été prise en compte conformément aux consignes en vigueur et consignée dans la présente main courante.'},
+    {id:'personne_signalee',icon:'!',label:'Personne signalée',category:'Incident / Autre',hint:'Comportement à surveiller',severity:'À surveiller',message:'Présence d’une personne nécessitant une vigilance particulière constatée à proximité du site. La situation a été surveillée et consignée dans la présente main courante.'},
+    {id:'services_secours',icon:'✦',label:'Police / secours',category:'Incident / Autre',hint:'Intervention extérieure',severity:'Important',message:'Présence des forces de l’ordre ou des services de secours constatée sur le site. Leur intervention a été prise en compte et les éléments utiles sont consignés dans la présente main courante.'},
+    {id:'texte_libre',icon:'＋',label:'Écrire librement',category:'Incident / Autre',hint:'Situation non prévue',severity:'Normal',message:''}
   ];
 }
-function agentRecommendedActions(mode){
-  const preferred={
-    surveillance:['situation_normale','passage_vehicule','controle_acces','personne_signalee'],
-    surveillance_rounds:['situation_normale','controle_acces','passage_vehicule','personne_signalee'],
-    accueil:['arrivee_employe','depart_employe','visiteur_accueilli','livraison_recue'],
-    mixte:['controle_acces','arrivee_employe','livraison_recue','situation_normale']
-  }[mode]||['situation_normale','controle_acces','passage_vehicule','objet_trouve'];
-  const lib=agentActionLibrary();
-  return preferred.map(id=>lib.find(a=>a.id===id)).filter(Boolean);
-}
 function agentActionById(id){ return agentActionLibrary().find(action=>action.id===id)||null; }
-function agentActionCatalogHtml(mode,queryText=''){
-  const q=String(queryText||'').trim().toLowerCase();
-  const rows=agentActionLibrary().filter(action=>action.modes.includes(mode)||mode==='mixte').filter(action=>!q||`${action.label} ${action.category} ${action.message}`.toLowerCase().includes(q));
-  const groups=[...new Set(rows.map(action=>action.category))];
-  if(!rows.length) return '<div class="empty">Aucune action ne correspond à ta recherche.</div>';
-  return groups.map(group=>`<section class="agent-action-group"><div class="agent-action-group-title">${safe(group)}</div><div class="agent-action-catalog">${rows.filter(action=>action.category===group).map(action=>`<button type="button" class="agent-action-catalog-btn" data-agent-action-id="${safe(action.id)}"><span>${safe(action.icon)}</span><div><strong>${safe(action.label)}</strong><small>${safe(action.message)}</small></div></button>`).join('')}</div></section>`).join('');
+function agentSimpleCategories(state={}){
+  const roundEnabled=Boolean(visualRoundConfig(state.site||{}).enabled);
+  return [
+    {id:'personnel',icon:'♙',label:'Personnel',hint:'Employés & prestataires',actions:['arrivee_employe','depart_employe','arrivee_prestataire','depart_prestataire']},
+    {id:'acces',icon:'⌁',label:'Accès / Visiteurs',hint:'Entrées, sorties & accès',actions:['visiteur_accueilli','controle_acces','acces_autorise','acces_refuse','porte_ouverte','portail_ouvert']},
+    {id:'surveillance',icon:'◎',label:'Ronde / Surveillance',hint:'Contrôles & observations',actions:[...(roundEnabled?['__visual_round__']:[]),'situation_normale','passage_vehicule','passage_pieton','presence_inhabituelle','bruit_constate','eclairage_defectueux']},
+    {id:'objets',icon:'▣',label:'Livraisons / Objets',hint:'Colis, clés & objets',actions:['livraison_recue','livraison_refusee','objet_trouve','objet_remis','cles_recuperees','cles_transmises','colis_recu','colis_remis']},
+    {id:'incident',icon:'!',label:'Incident / Autre',hint:'Anomalies & situations particulières',actions:['alarme','anomalie_technique','materiel_endommage','degradation_constatee','tentative_acces','personne_signalee','services_secours','texte_libre']}
+  ];
+}
+function agentSimpleCategoryCardsHtml(state){
+  return `<div class="simple-category-grid">${agentSimpleCategories(state).map((cat,index)=>`<button type="button" class="simple-category-card ${index===4?'wide':''}" data-simple-category="${safe(cat.id)}"><span>${safe(cat.icon)}</span><div><strong>${safe(cat.label)}</strong><small>${safe(cat.hint)}</small></div><em>›</em></button>`).join('')}</div>`;
+}
+function bindAgentSimpleCategoryButtons(state,root=document){
+  root.querySelectorAll?.('[data-simple-category]').forEach(btn=>btn.addEventListener('click',()=>openAgentSimpleCategory(state,btn.dataset.simpleCategory)));
+}
+function openAgentSimpleFlow(state){
+  showModal('Ajouter à la main courante',`<div class="simple-flow-modal"><div class="simple-flow-modal-head"><span>MAIN COURANTE</span><strong>Que souhaites-tu enregistrer ?</strong><p>Choisis simplement la situation. Sentinelle prépare ensuite un texte professionnel pour le client.</p></div>${agentSimpleCategoryCardsHtml(state)}</div>`);
+  bindAgentSimpleCategoryButtons(state,document.querySelector('#modal-root')||document);
+}
+function openAgentSimpleCategory(state,categoryId){
+  const category=agentSimpleCategories(state).find(cat=>cat.id===categoryId); if(!category) return openAgentSimpleFlow(state);
+  const actions=category.actions.map(id=>id==='__visual_round__'?{id:'__visual_round__',icon:'◎',label:'Ronde visuelle',hint:'Effectuer et consigner la ronde'}:agentActionById(id)).filter(Boolean);
+  showModal(category.label,`<div class="simple-flow-modal"><button type="button" class="simple-back-btn" id="simple-flow-back">‹ Toutes les catégories</button><div class="simple-flow-modal-head compact"><span>${safe(category.label.toUpperCase())}</span><strong>Que s’est-il passé ?</strong><p>Un seul choix suffit. Tu pourras vérifier le texte avant validation.</p></div><div class="simple-action-grid">${actions.map(action=>`<button type="button" class="simple-action-card" data-simple-action="${safe(action.id)}"><span>${safe(action.icon||'•')}</span><div><strong>${safe(action.label)}</strong><small>${safe(action.hint||'Texte professionnel prêt à l’emploi')}</small></div></button>`).join('')}</div></div>`);
+  document.querySelector('#simple-flow-back')?.addEventListener('click',()=>openAgentSimpleFlow(state));
+  document.querySelectorAll('[data-simple-action]').forEach(btn=>btn.addEventListener('click',()=>{
+    const id=btn.dataset.simpleAction;
+    if(id==='__visual_round__') return openVisualRoundModal(state.shift,state.site,state);
+    const action=agentActionById(id); if(action) openAgentActionComposer(state,action);
+  }));
 }
 
 function missionProgressState(shift){
@@ -1252,7 +1257,7 @@ function formatCountdown(ms){
   return `${Math.max(1,m)} min`;
 }
 function formatShortTime(ms){ return new Date(ms).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}); }
-function reportIsIncident(report){ return ['Incident','Intervention','Anomalie'].includes(report.category)||['Important','Critique'].includes(report.severity); }
+function reportIsIncident(report){ const cat=String(report?.category||''); return cat.includes('Incident')||cat.includes('Anomalie')||cat==='Intervention'||['Important','Critique'].includes(report?.severity); }
 async function agentUnreadFlash(){
   try{
     const snap=await getDocs(query(collectionRef('flashMessages'),orderBy('sentAt','desc'),limit(30)));
@@ -1264,7 +1269,7 @@ async function agentUnreadFlash(){
 }
 function agentExperienceTimelineHtml(reports=[]){
   if(!reports.length) return '<div class="empty">La timeline démarrera avec la première action de cette vacation.</div>';
-  return reports.slice(0,16).map(r=>{
+  return reports.slice(0,5).map(r=>{
     const when=agentTimestampMs(r.createdAt); const time=when?formatShortTime(when):'—';
     const type=r.eventType||'';
     const icon=type==='shift_start'?'▶':type==='shift_end'?'■':type==='visual_round'?'◎':type==='external_access_opened'?'↗':reportIsIncident(r)?'!':'•';
@@ -1293,7 +1298,7 @@ function renderAgentExperienceHero(state){
   const incidentCount=reports.filter(reportIsIncident).length;
   const mode=agentMode(site);
   const hero=document.querySelector('#agent-xp-hero');
-  if(hero) hero.innerHTML=`<div class="agent-mission-hero ultra ${ctx.tone}">
+  if(hero) hero.innerHTML=`<div class="agent-mission-hero ultra simple-flow-hero ${ctx.tone}">
     <div class="agent-watch-zone">
       <div class="agent-watch-halo"></div>
       <div class="agent-progress-ring ultra" style="--mission-progress:${Math.round(progress.progress*3.6)}deg">
@@ -1306,7 +1311,8 @@ function renderAgentExperienceHero(state){
       <h1>${safe(shift.siteNom||site.name||'Mission')}</h1>
       <p>${safe(site.address||'Adresse non renseignée')}</p>
       <div class="agent-mission-meta ultra"><span>◷ ${shift.scheduledStart?`${safe(timeOnlyText(shift.scheduledStart))} → ${safe(timeOnlyText(shift.scheduledEnd))}`:`Depuis ${safe(timeOnlyText(shift.startTime))}`}</span><span>▤ ${reports.length} événement${reports.length>1?'s':''}</span><span class="${incidentCount?'has-alert':''}">${incidentCount?`! ${incidentCount} incident${incidentCount>1?'s':''}`:'✓ Situation normale'}</span></div>
-      <div class="agent-mission-mini-status"><span class="signal"></span><strong>Mission active</strong><small>Sentinelle suit ta vacation en temps réel</small></div>
+      <div class="agent-mission-mini-status"><span class="signal"></span><strong>Mission active</strong><small>Sentinelle suit ta vacation</small></div>
+      <div class="agent-simple-next ${ctx.tone}"><span>${safe(ctx.eyebrow)}</span><strong>${safe(ctx.title)}</strong><small>${safe(ctx.detail)}</small></div>
     </div>
   </div>`;
   const modeLabel=document.querySelector('#agent-mode-label'); if(modeLabel) modeLabel.textContent=agentModeLabel(mode);
@@ -1314,75 +1320,59 @@ function renderAgentExperienceHero(state){
 
 function renderAgentCommandDock(state){
   const box=document.querySelector('#agent-command-dock'); if(!box)return;
-  const round=visualRoundConfig(state.site);
+  const ctx=agentContextModel(state);
   const external=resolveSiteExternalAccess(state.site,state.shift);
-  const buttons=[
-    `<button class="agent-command-key primary" data-command="mci"><span>▤</span><strong>Main courante</strong><small>Écrire / déclarer</small></button>`,
-    round.enabled?`<button class="agent-command-key round" data-command="round"><span>◎</span><strong>Ronde visuelle</strong><small>Valider le passage</small></button>`:'',
-    `<button class="agent-command-key" data-command="actions"><span>✦</span><strong>Actions rapides</strong><small>Textes professionnels</small></button>`,
-    `<button class="agent-command-key" data-command="docs"><span>▣</span><strong>Consignes</strong><small>Accès immédiat</small></button>`,
-    external?`<button class="agent-command-key aquila" data-command="aquila"><span>↗</span><strong>Aquila</strong><small>Prise de poste externe</small></button>`:''
-  ].filter(Boolean);
-  box.innerHTML=`<div class="agent-command-strip">${buttons.join('')}</div>`;
-  box.querySelector('[data-command="mci"]')?.addEventListener('click',()=>navigate('mci'));
-  box.querySelector('[data-command="round"]')?.addEventListener('click',()=>openVisualRoundModal(state.shift,state.site,state));
-  box.querySelector('[data-command="actions"]')?.addEventListener('click',()=>openAgentQuickActionsHub(state));
+  const secondary=ctx.kind!=='mci'?`<button class="agent-simple-secondary-cta" data-command="mci" type="button">＋ Ajouter un autre événement</button>`:'';
+  box.innerHTML=`<div class="agent-simple-control">
+    <button class="agent-simple-primary-cta ${safe(ctx.tone)}" data-command="primary" type="button"><span>${ctx.kind==='visual_round'?'◎':ctx.kind==='external'?'↗':ctx.kind==='end'?'■':ctx.kind==='flash'?'⚡':'＋'}</span><strong>${safe(ctx.button)}</strong></button>
+    ${secondary}
+    <div class="agent-simple-nav ${external?'has-aquila':''}">
+      <button type="button" data-command="mission"><span>⌂</span><strong>Mission</strong></button>
+      <button type="button" data-command="docs"><span>▣</span><strong>Consignes</strong></button>
+      <button type="button" data-command="pti"><span>!</span><strong>PTI</strong></button>
+      ${external?`<button type="button" data-command="aquila"><span>↗</span><strong>Aquila</strong></button>`:''}
+    </div>
+  </div>`;
+  box.querySelector('[data-command="primary"]')?.addEventListener('click',()=>handleAgentContextAction(ctx,state));
+  box.querySelector('[data-command="mci"]')?.addEventListener('click',()=>openAgentSimpleFlow(state));
+  box.querySelector('[data-command="mission"]')?.addEventListener('click',()=>document.querySelector('#agent-xp-hero')?.scrollIntoView({behavior:'smooth',block:'start'}));
   box.querySelector('[data-command="docs"]')?.addEventListener('click',()=>navigate('docs'));
-  box.querySelector('[data-command="aquila"]')?.addEventListener('click',()=>openAgentExternalAccess(state.shift,state.site,external));
+  box.querySelector('[data-command="pti"]')?.addEventListener('click',()=>{const sos=document.querySelector('#sos-btn');sos?.focus();agentHaptic(16);toast('Pour déclencher le PTI/SOS, maintiens le bouton rouge SOS/PTI pendant 3 secondes.','warning');});
+  box.querySelector('[data-command="aquila"]')?.addEventListener('click',()=>external&&openAgentExternalAccess(state.shift,state.site,external));
 }
-
-function renderAgentContextCard(state){
-  const ctx=agentContextModel(state),round=ctx.round;
-  const box=document.querySelector('#agent-context-card'); if(!box)return;
-  const secondary=[];
-  if(round.enabled&&ctx.kind!=='visual_round') secondary.push(`<span>◎ Prochaine ronde · ${safe(formatShortTime(round.due))}</span>`);
-  if(state.unreadFlash?.length&&ctx.kind!=='flash') secondary.push(`<span>⚡ ${state.unreadFlash.length} Flash non lu${state.unreadFlash.length>1?'s':''}</span>`);
-  if(ctx.external&&ctx.externalOpened) secondary.push('<span>✓ Aquila ouvert sur cette vacation</span>');
-  box.className=`agent-context-card ${ctx.tone}`;
-  box.innerHTML=`<div class="agent-context-copy"><span>${safe(ctx.eyebrow)}</span><strong>${safe(ctx.title)}</strong><p>${safe(ctx.detail)}</p>${secondary.length?`<div class="agent-context-secondary">${secondary.join('')}</div>`:''}</div><button class="agent-context-cta" id="agent-context-cta">${safe(ctx.button)}</button>`;
-  document.querySelector('#agent-context-cta')?.addEventListener('click',()=>handleAgentContextAction(ctx,state));
-}
-function renderAgentSmartActions(state){
-  const box=document.querySelector('#agent-smart-actions'); if(!box)return;
-  const mode=agentMode(state.site);
-  const actions=agentRecommendedActions(mode);
-  box.innerHTML=actions.map(action=>`<button class="agent-smart-action ultra" data-agent-action-id="${safe(action.id)}"><span>${safe(action.icon)}</span><strong>${safe(action.label)}</strong><small>${safe(action.message)}</small></button>`).join('');
-  box.querySelectorAll('[data-agent-action-id]').forEach(btn=>btn.addEventListener('click',()=>{
-    const action=agentActionById(btn.dataset.agentActionId); if(action) openAgentActionComposer(state,action);
-  }));
-  document.querySelector('#agent-open-all-actions')?.addEventListener('click',()=>openAgentQuickActionsHub(state));
-}
-function openAgentQuickActionsHub(state){
-  const mode=agentMode(state.site);
-  showModal('Actions rapides',`<div class="agent-action-hub"><div class="agent-action-hub-hero"><span>ACTIONS TERRAIN</span><strong>Une situation = un texte client propre</strong><p>Sélectionne une action. Sentinelle prépare une phrase professionnelle que tu peux corriger avant validation.</p></div><div class="field"><label>Rechercher une situation</label><input class="input" id="agent-action-search" placeholder="Ex. employé, livraison, objet, portail…"></div><div id="agent-action-hub-results">${agentActionCatalogHtml(mode)}</div></div>`);
-  const results=document.querySelector('#agent-action-hub-results');
-  const bind=()=>results?.querySelectorAll('[data-agent-action-id]').forEach(btn=>btn.addEventListener('click',()=>{const action=agentActionById(btn.dataset.agentActionId);if(action)openAgentActionComposer(state,action);}));
-  bind();
-  document.querySelector('#agent-action-search')?.addEventListener('input',event=>{if(results){results.innerHTML=agentActionCatalogHtml(mode,event.target.value);bind();}});
-}
+function renderAgentContextCard(){ /* V5.11.3 : prochaine action intégrée directement dans la carte mission */ }
+function renderAgentSmartActions(){ /* V5.11.3 : remplacé par le flux guidé à 5 catégories */ }
+function openAgentQuickActionsHub(state){ openAgentSimpleFlow(state); }
 function openAgentActionComposer(state,action){
-  showModal(action.label,`<form id="agent-action-compose" class="agent-action-compose"><div class="agent-action-compose-head"><span class="agent-action-icon-big">${safe(action.icon)}</span><div><span>${safe(action.category).toUpperCase()}</span><strong>${safe(action.label)}</strong><p>Le texte ci-dessous est exactement celui qui sera ajouté à la main courante. Modifie-le si nécessaire.</p></div></div><div class="agent-client-copy-label">TEXTE PRÊT POUR LE CLIENT</div><textarea class="textarea agent-client-copy" name="message" required>${safe(action.message)}</textarea><div class="agent-compose-tools"><span class="pill ${action.severity==='Important'?'orange':action.severity==='À surveiller'?'orange':'green'}">${safe(action.severity)}</span><button type="button" class="btn small ghost" id="agent-copy-reset">Réinitialiser le texte</button></div><button class="btn primary full agent-compose-submit" type="submit">Ajouter à la main courante</button></form>`);
-  const form=document.querySelector('#agent-action-compose');
+  const isFree=action.id==='texte_libre';
+  showModal(action.label,`<form id="agent-action-compose" class="agent-action-compose simple-compose"><button type="button" class="simple-back-btn" id="simple-compose-back">‹ Retour</button><div class="agent-action-compose-head"><span class="agent-action-icon-big">${safe(action.icon)}</span><div><span>${safe(action.category).toUpperCase()}</span><strong>${safe(action.label)}</strong><p>${isFree?'Rédige un fait précis, neutre et chronologique.':'Le texte est déjà prêt pour le client. Tu peux le modifier avant validation.'}</p></div></div><div class="agent-client-copy-label">TEXTE DE LA MAIN COURANTE</div><textarea class="textarea agent-client-copy" name="message" required placeholder="${isFree?'Décris simplement ce qui s’est passé…':''}">${safe(action.message)}</textarea><div class="simple-compose-row"><span class="pill ${action.severity==='Important'?'orange':action.severity==='À surveiller'?'orange':'green'}">${safe(action.severity)}</span>${!isFree?'<button type="button" class="btn small ghost" id="agent-copy-reset">Réinitialiser le texte</button>':''}</div><label class="simple-photo-btn" for="simple-action-photo"><span>📷</span><strong>Ajouter une photo</strong><small>Facultatif</small></label><input id="simple-action-photo" type="file" accept="image/*" capture="environment" hidden><div id="simple-action-photo-preview" class="camera-preview" style="display:none"></div><button class="btn primary full agent-compose-submit" type="submit">Valider dans la main courante</button></form>`);
+  const form=document.querySelector('#agent-action-compose'); let photo=null;
+  document.querySelector('#simple-compose-back')?.addEventListener('click',()=>openAgentSimpleCategory(state,agentSimpleCategories(state).find(c=>c.actions.includes(action.id))?.id||'incident'));
   document.querySelector('#agent-copy-reset')?.addEventListener('click',()=>{if(form?.message)form.message.value=action.message;});
+  document.querySelector('#simple-action-photo')?.addEventListener('change',async event=>{
+    const file=event.target.files?.[0]; if(!file)return;
+    try{photo=await compressCheckInPhoto(file);const preview=document.querySelector('#simple-action-photo-preview');if(preview){preview.style.display='flex';preview.innerHTML=`<img src="${safe(photo.dataUrl)}" alt="Photo"><div><strong>Photo prête</strong><span>${Math.max(1,Math.round(photo.bytes/1024))} Ko</span></div>`;}}catch(error){toast(userFriendlyError(error,'Photo impossible.'),'error');}
+  });
   form?.addEventListener('submit',async event=>{
     event.preventDefault();
     const message=String(new FormData(form).get('message')||'').trim();
     if(message.length<8) return toast('Le texte est trop court pour une main courante.','warning');
     const button=form.querySelector('button[type="submit"]'); if(button){button.disabled=true;button.textContent='Enregistrement…';}
-    await saveAgentProfessionalAction(state.shift,action,message).catch(error=>{console.error(error);toast(userFriendlyError(error,'Action impossible à enregistrer.'),'error');if(button){button.disabled=false;button.textContent='Ajouter à la main courante';}});
+    await saveAgentProfessionalAction(state.shift,action,message,photo).catch(error=>{console.error(error);toast(userFriendlyError(error,'Action impossible à enregistrer.'),'error');if(button){button.disabled=false;button.textContent='Valider dans la main courante';}});
   });
 }
-async function saveAgentProfessionalAction(shift,action,message){
-  await addDoc(collectionRef('reports'),{agentId:currentUser.uid,agentNom:`${currentProfile.prenom||''} ${currentProfile.nom||''}`.trim(),siteId:shift.siteId,siteNom:shift.siteNom,shiftId:shift.id,missionId:shift.missionId||null,category:action.category,severity:action.severity||'Normal',message,status:'new',isLocked:true,eventType:'quick_action',quickActionId:action.id,quickActionLabel:action.label,createdAt:serverTimestamp(),createdBy:currentUser.uid});
-  await addAudit('agent_quick_action',{shiftId:shift.id,siteId:shift.siteId,label:action.label,actionId:action.id});
+async function saveAgentProfessionalAction(shift,action,message,photo=null){
+  await addDoc(collectionRef('reports'),{agentId:currentUser.uid,agentNom:`${currentProfile.prenom||''} ${currentProfile.nom||''}`.trim(),siteId:shift.siteId,siteNom:shift.siteNom,shiftId:shift.id,missionId:shift.missionId||null,category:action.category,severity:action.severity||'Normal',message,status:'new',isLocked:true,eventType:'quick_action',quickActionId:action.id,quickActionLabel:action.label,photoUrl:photo?.dataUrl||null,photoAvailable:Boolean(photo?.dataUrl),photoBytes:Number(photo?.bytes||0),photoMimeType:photo?.mimeType||null,photoWidth:Number(photo?.width||0),photoHeight:Number(photo?.height||0),photoCapturedAt:photo?.capturedAt||null,createdAt:serverTimestamp(),createdBy:currentUser.uid});
+  await addAudit('agent_quick_action',{shiftId:shift.id,siteId:shift.siteId,label:action.label,actionId:action.id,photo:Boolean(photo?.dataUrl)});
   agentHaptic(28);closeModal();toast(`${action.label} ajouté à la main courante.`,'success');
 }
+
 function renderAgentLiveTimeline(state){
   const box=document.querySelector('#agent-live-timeline'); if(box) box.innerHTML=agentExperienceTimelineHtml(state.reports);
   const count=document.querySelector('#agent-live-count'); if(count) count.textContent=`${state.reports.length} événement${state.reports.length>1?'s':''}`;
 }
 function refreshAgentExperience(state){
-  renderAgentExperienceHero(state); renderAgentCommandDock(state); renderAgentContextCard(state); renderAgentSmartActions(state); renderAgentLiveTimeline(state);
+  renderAgentExperienceHero(state); renderAgentCommandDock(state); renderAgentLiveTimeline(state);
 }
 
 async function initAgentExperience(shift){
@@ -1407,7 +1397,7 @@ async function handleAgentContextAction(ctx,state){
   if(ctx.kind==='external') return openAgentExternalAccess(state.shift,state.site,ctx.external);
   if(ctx.kind==='visual_round') return openVisualRoundModal(state.shift,state.site,state);
   if(ctx.kind==='flash') return navigate('flash');
-  navigate('mci');
+  openAgentSimpleFlow(state);
 }
 async function createAgentQuickReport(shift,label,message,severity='Information'){
   const action=agentActionLibrary().find(item=>item.label===label)||{id:'legacy_'+id(),label,category:'Information',severity:severity==='À surveiller'?'À surveiller':'Normal',message:String(message||label||'Information terrain.')};
@@ -1439,7 +1429,7 @@ function openVisualRoundModal(shift,site,state=null){
     const btn=form.querySelector('button[type="submit"]');btn.disabled=true;
     const message=visualRoundProfessionalText(result,note);
     try{
-      await addDoc(collectionRef('reports'),{agentId:currentUser.uid,agentNom:`${currentProfile.prenom||''} ${currentProfile.nom||''}`.trim(),siteId:shift.siteId,siteNom:shift.siteNom,shiftId:shift.id,missionId:shift.missionId||null,category:'Ronde visuelle',severity:result==='Anomalie'?'À surveiller':'Normal',message,eventType:'visual_round',visualRoundResult:result,visualRoundScheduledFor:round.due?new Date(round.due).toISOString():null,photoUrl:photo?.dataUrl||null,photoAvailable:Boolean(photo?.dataUrl),photoBytes:Number(photo?.bytes||0),photoMimeType:photo?.mimeType||null,photoWidth:Number(photo?.width||0),photoHeight:Number(photo?.height||0),photoCapturedAt:photo?.capturedAt||null,status:'new',isLocked:true,createdAt:serverTimestamp(),createdBy:currentUser.uid});
+      await addDoc(collectionRef('reports'),{agentId:currentUser.uid,agentNom:`${currentProfile.prenom||''} ${currentProfile.nom||''}`.trim(),siteId:shift.siteId,siteNom:shift.siteNom,shiftId:shift.id,missionId:shift.missionId||null,category:'Ronde / Surveillance',severity:result==='Anomalie'?'À surveiller':'Normal',message,eventType:'visual_round',visualRoundResult:result,visualRoundScheduledFor:round.due?new Date(round.due).toISOString():null,photoUrl:photo?.dataUrl||null,photoAvailable:Boolean(photo?.dataUrl),photoBytes:Number(photo?.bytes||0),photoMimeType:photo?.mimeType||null,photoWidth:Number(photo?.width||0),photoHeight:Number(photo?.height||0),photoCapturedAt:photo?.capturedAt||null,status:'new',isLocked:true,createdAt:serverTimestamp(),createdBy:currentUser.uid});
       await addAudit('visual_round_completed',{shiftId:shift.id,siteId:shift.siteId,result});
       agentHaptic(35);closeModal();toast(result==='RAS'?'Ronde visuelle ajoutée à la main courante':'Ronde enregistrée · anomalie consignée','success');
     }catch(error){console.error(error);toast(userFriendlyError(error,'Ronde impossible à enregistrer.'),'error');btn.disabled=false;}
@@ -1832,24 +1822,21 @@ function reportTimeline(r){
 async function renderAgentMCI(){
   currentRoute = 'mci';
   const shift = await findActiveShift();
-  const body = `<section class="grid cols-2">
-    <div class="card">
-      <div class="card-title"><div><h2>Main courante intelligente</h2><p>Maximum 2 clics pour déclarer</p></div></div>
-      ${!shift ? `<div class="setup-box">Tu dois prendre poste avant d’envoyer une main courante.</div>` : mciForm(shift)}
+  let state=null;
+  if(shift){
+    const siteSnap=await getDoc(docRef('sites',shift.siteId)).catch(()=>null);
+    state={shift,site:siteSnap?.exists?.()?{id:siteSnap.id,...siteSnap.data()}:{id:shift.siteId,name:shift.siteNom},reports:[]};
+  }
+  const body = `<section class="grid cols-2 simple-mci-page">
+    <div class="card ultra-card">
+      <div class="card-title"><div><h2>Ajouter à la main courante</h2><p>Choisis une situation, Sentinelle prépare le texte</p></div></div>
+      ${!shift ? `<div class="setup-box">Tu dois prendre poste avant d’ajouter un événement.</div>` : `<div class="simple-flow-inline"><div class="simple-flow-inline-head"><span>1</span><div><strong>Choisis une catégorie</strong><small>Une seule décision à la fois</small></div></div>${agentSimpleCategoryCardsHtml(state)}</div>`}
     </div>
-    <div class="card"><div class="card-title"><div><h2>Flux du site</h2><p>Rapports récents</p></div></div><div id="site-report-feed" class="timeline"><div class="empty">Chargement...</div></div></div>
+    <div class="card ultra-card"><div class="card-title"><div><h2>Flux du site</h2><p>Événements récents</p></div></div><div id="site-report-feed" class="timeline"><div class="empty">Chargement...</div></div></div>
   </section>`;
-  render(page('Main Courante Agent', 'Rapport opérationnel envoyé au QG en temps réel', body));
-  if (shift) bindMCIForm(shift);
+  render(page('Main Courante Agent', 'Saisie guidée et professionnelle', body));
+  if(state) bindAgentSimpleCategoryButtons(state,document);
   listenSiteReports(shift?.siteId);
-}
-function mciPresetLibrary(){
-  return agentActionLibrary().concat([
-    {id:'degradation',label:'Dégradation constatée',category:'Incident',severity:'Important',message:'Une dégradation a été constatée sur le site. La zone concernée a été contrôlée et la situation a été consignée afin de permettre sa prise en charge.'},
-    {id:'levee_doute',label:'Levée de doute',category:'Intervention',severity:'Normal',message:'Levée de doute effectuée conformément aux consignes du site. Aucun danger immédiat ni élément nécessitant une intervention complémentaire n’a été constaté.'},
-    {id:'consigne_qg',label:'Consigne QG reçue',category:'Consigne reçue',severity:'Normal',message:'Une consigne opérationnelle a été reçue du QG. Celle-ci a été prise en compte et appliquée sur le site conformément aux instructions transmises.'},
-    {id:'incident_maitrise',label:'Situation stabilisée',category:'Incident',severity:'Important',message:'Un événement nécessitant une vigilance particulière a été pris en charge sur le site. La situation est désormais stabilisée et les éléments utiles sont consignés dans la présente main courante.'}
-  ]);
 }
 function mciForm(shift){
   const cats=['Surveillance','Personnel','Accès','Visiteur','Objet / matériel','Livraison','Technique','Incident','Intervention','Consigne reçue'];
