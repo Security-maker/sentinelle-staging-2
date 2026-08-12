@@ -1186,3 +1186,29 @@ body{padding-top:28px}
   .agent-mission-hero.ultra.simple-flow-hero{grid-template-columns:108px minmax(0,1fr);gap:9px}.agent-mission-hero.ultra.simple-flow-hero .agent-watch-zone{min-height:110px}.agent-mission-hero.ultra.simple-flow-hero .agent-watch-halo{width:108px;height:108px}.agent-mission-hero.ultra.simple-flow-hero .agent-progress-ring.ultra{width:102px;height:102px}.agent-mission-hero.ultra.simple-flow-hero .agent-progress-core.ultra{width:91px;height:91px}.agent-mission-hero.ultra.simple-flow-hero .agent-progress-core.ultra strong{font-size:18px}.agent-mission-hero.ultra.simple-flow-hero .agent-progress-core.ultra small{display:none}.agent-mission-hero.ultra.simple-flow-hero .agent-progress-core.ultra em{font-size:6px}.agent-mission-hero.ultra.simple-flow-hero .agent-mission-copy.ultra h1{font-size:18px}
   .simple-category-grid,.simple-action-grid{gap:7px}.simple-category-card{min-height:82px}.simple-action-card{min-height:72px}
 }
+
+/* =========================================================
+   V5.11.4 TEST SAFE — SMART MCI
+   Priorité: trouver / consigner / valider en quelques secondes.
+   ========================================================= */
+.smart-mci-modal{gap:12px}
+.smart-mci-block{display:grid;gap:10px}
+.smart-mci-label{display:grid;grid-template-columns:34px 1fr;gap:9px;align-items:center;padding:9px 10px;border-radius:15px;background:rgba(0,184,255,.045);border:1px solid rgba(100,208,255,.11)}
+.smart-mci-label>span{width:34px;height:34px;border-radius:12px;display:grid;place-items:center;background:rgba(0,184,255,.10);color:#64d0ff;font-size:16px}
+.smart-mci-label strong{display:block;font-size:11px}.smart-mci-label small{display:block;margin-top:2px;font-size:8px;color:var(--metal)}
+.smart-mci-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.smart-mci-action{min-height:76px;border-radius:17px;border:1px solid rgba(255,255,255,.075);background:linear-gradient(155deg,rgba(255,255,255,.05),rgba(255,255,255,.022));color:var(--cold);display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:7px;padding:11px 12px;text-align:left;transition:transform .14s ease,border-color .14s ease,background .14s ease}
+.smart-mci-action:active{transform:scale(.975);background:rgba(0,184,255,.08);border-color:rgba(100,208,255,.30)}
+.smart-mci-action>span{width:29px;height:29px;border-radius:10px;display:grid;place-items:center;background:rgba(0,184,255,.10);color:#64d0ff;font-size:14px;font-weight:900}
+.smart-mci-action>strong{font-size:10.5px;line-height:1.22}
+.smart-mci-all{min-height:49px;border-radius:15px;border:1px solid rgba(100,208,255,.15);background:rgba(0,184,255,.035);color:#b8eaff;display:grid;grid-template-columns:25px 1fr auto;gap:7px;align-items:center;padding:8px 11px;text-align:left}
+.smart-mci-all>span{font-size:18px;color:#64d0ff}.smart-mci-all>strong{font-size:10px}.smart-mci-all>em{font-style:normal;font-size:18px;color:rgba(100,208,255,.55)}
+.smart-mci-all:active{background:rgba(0,184,255,.09);transform:scale(.99)}
+.quick-detail-pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}.quick-detail-box{display:grid;gap:5px}.quick-detail-box label{font-size:9px;font-weight:800;color:var(--metal)}.quick-detail-box label small{font-weight:500;opacity:.75}.quick-detail-box .input{min-height:43px}
+.simple-compose .agent-client-copy{min-height:125px}
+.agent-compose-submit{min-height:58px;font-size:14px}
+.round-anomaly-chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:7px}.round-anomaly-chips button{min-height:34px;border-radius:999px;padding:6px 10px;border:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.035);color:var(--metal);font-size:8.5px;font-weight:800}.round-anomaly-chips button.active,.round-anomaly-chips button:active{border-color:rgba(255,159,28,.35);background:rgba(255,159,28,.10);color:#ffd49b}
+@media(max-width:620px){
+  .smart-mci-grid{gap:7px}.smart-mci-action{min-height:70px;padding:9px 10px;border-radius:15px}.smart-mci-action>span{width:27px;height:27px}.smart-mci-action>strong{font-size:9.8px}.smart-mci-all{min-height:46px}.quick-detail-pair{grid-template-columns:1fr}.simple-compose .agent-client-copy{min-height:112px}.agent-compose-submit{min-height:56px}
+}
+@media(max-width:360px){.smart-mci-action{min-height:66px}.smart-mci-action>strong{font-size:9.2px}.smart-mci-label small{display:none}}

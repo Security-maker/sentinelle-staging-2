@@ -1,14 +1,14 @@
-const CACHE_NAME = 'sentinelle-pro-v5-11-3-test-safe-simple-flow';
-const CDN_CACHE_NAME = 'sentinelle-cdn-v5-11-3-safe-simple-flow';
+const CACHE_NAME = 'sentinelle-pro-v5-11-4-test-safe-smart-mci';
+const CDN_CACHE_NAME = 'sentinelle-cdn-v5-11-4-safe-smart-mci';
 const APP_SHELL = [
   './',
   './index.html',
-  './style.css?v=5113s',
-  './app.js?v=5113s',
-  './sentinelle-config.js?v=5113s',
-  './supabase-compat.js?v=5113s',
-  './supabase-config.js?v=5113s',
-  './supabase-bridge.js?v=5113s',
+  './style.css?v=5114m',
+  './app.js?v=5114m',
+  './sentinelle-config.js?v=5114m',
+  './supabase-compat.js?v=5114m',
+  './supabase-config.js?v=5114m',
+  './supabase-bridge.js?v=5114m',
   './manifest.json',
   './manifest-client.json',
   './offline.html',
